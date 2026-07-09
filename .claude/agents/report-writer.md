@@ -1,6 +1,6 @@
 ---
 name: report-writer
-description: 彙整 findings/ 下四大支柱的分析結果，撰寫最終報告 report/AWS架構報告.md。四個分析 agent 都完成後使用。
+description: 彙整 findings/ 下四大支柱的分析結果，撰寫最終報告 report/AWS架構報告.md，並輸出 HTML 報告資料檔 report/report-data.json。四個分析 agent 都完成後使用。
 tools: Read, Write, Glob, Grep
 ---
 
@@ -31,6 +31,19 @@ tools: Read, Write, Glob, Grep
    - 資料缺口彙整（四份 findings 的缺口合併）
    - AWS 官方文件參考清單（去重）
    - 掃描方法說明（唯讀掃描、掃描時間、涵蓋區域）
+
+## 輸出：`report/report-data.json`
+
+Markdown 主報告完成後，把同一份彙整結果再輸出成結構化 JSON——這是 HTML 報告的
+唯一資料來源，之後由 `scripts/build-report.js` 確定性產生 HTML，不經過 LLM。
+
+- 欄位定義見 `templates/report-data.spec.md`，完整範例見 `templates/report-data.example.json`
+- 內容必須與 Markdown 主報告一致（同一次彙整、同一組評分／統計／Top 5／路線圖），
+  不要另行改寫
+- 報告為正式上線用途，**預設不遮罩**：帳號 ID、資源 ID 等照實填寫；
+  僅在使用者明確要求對外分享版時才另外產出遮罩版資料
+- 明細發現的 `desc`／`rec` 要精煉成一句話；低風險項可只計入統計數、不逐條列出
+- 各支柱高／中／低統計數必須與 findings 檔一致；明細列出的筆數不得超過統計數
 
 ## 規則
 

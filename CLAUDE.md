@@ -7,7 +7,7 @@
 
 - **對 AWS 帳號全程唯讀**：只允許 `describe-*` / `list-*` / `get-*` 類 API，任何 agent 都不得執行變更帳號狀態的指令
 - `data/` 含帳號內部資訊，已列入 .gitignore，不得提交或外傳
-- 發佈 HTML 報告（Artifact）前，先與使用者確認帳號 ID 等敏感資訊是否遮罩
+- 報告為正式上線用途，**預設不遮罩**帳號 ID 等資訊；僅在使用者明確要求對外分享版時才產生遮罩版（`build-report.js --masked` 會做遮罩防呆檢查）
 
 ## 執行流程（三階段）
 
@@ -18,9 +18,15 @@
      security-auditor / reliability-reviewer / performance-reviewer / cost-optimizer
      各自輸出 findings/<pillar>.md
 ③ report-writer（等 ② 全部完成後才派工）
-     彙整 → report/AWS架構報告.md
-   之後由主對話製作 HTML 報告頁（載入 artifact-design + dataviz skill）並發佈 Artifact
+     彙整 → report/AWS架構報告.md + report/report-data.json（HTML 報告的結構化資料）
+④ 主對話執行確定性產生器（不經過 LLM，版型逐月固定）
+     node scripts/build-report.js → report/aws-report.html → 發佈 Artifact
 ```
+
+HTML 版型、配色、章節結構凍結在 `templates/report.html.template` 與
+`templates/themes/*.css`，**不要每月重新設計**；逐月只換 report-data.json 的資料。
+資料欄位規格見 `templates/report-data.spec.md`。換專案配色時新增
+`templates/themes/<專案>.css` 並以 `--theme` 指定，版型不動。
 
 前置條件：AWS 憑證有效（`aws sts get-caller-identity` 通過）。失效時請使用者更新，不要代為處理憑證。
 

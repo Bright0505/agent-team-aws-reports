@@ -9,7 +9,8 @@
 - **唯讀保證**：掃描只使用 `describe-*` / `list-*` / `get-*` 類 AWS API，不對帳號做任何變更
 - **證據導向**：每項發現的現況證據必須對回 `data/` 內的實際掃描資料，不憑空推測
 - **並行分析**：四大支柱由四個 agent 並行分析，最後由 report-writer 彙整
-- **敏感資訊保護**：掃描原始資料（`data/`）已列入 `.gitignore`，只留本機；發佈 HTML 報告前會與使用者確認帳號 ID 等敏感資訊是否遮罩
+- **固定版型**：HTML 報告由確定性腳本從模板＋結構化資料產生，不經過 LLM，逐月版型、配色、章節結構完全一致
+- **敏感資訊保護**：掃描原始資料（`data/`）已列入 `.gitignore`，只留本機；需要對外分享時可用 `--masked` 產生遮罩版報告
 
 ## 前置條件
 
@@ -28,8 +29,9 @@
      security-auditor / reliability-reviewer / performance-reviewer / cost-optimizer
      各自輸出 findings/<pillar>.md
 ③ report-writer（等 ② 全部完成後才派工）
-     彙整 → report/AWS架構報告.md
-   之後由主對話製作 HTML 報告頁並發佈 Artifact
+     彙整 → report/AWS架構報告.md + report/report-data.json
+④ 確定性產生 HTML（不經過 LLM，版型逐月固定）
+     node scripts/build-report.js → report/aws-report.html → 發佈 Artifact
 ```
 
 也可以手動先跑掃描：
@@ -42,13 +44,31 @@ REGIONS="ap-east-2 us-east-1" scripts/scan.sh   # 指定區域，略過自動偵
 
 權限不足或服務未啟用的項目會記錄到 `data/scan-errors.log` 並繼續執行，屬預期行為。
 
+HTML 報告產生器：
+
+```bash
+node scripts/build-report.js                # report-data.json + 模板 → report/aws-report.html
+node scripts/build-report.js --standalone   # 包成完整 HTML 供本機直接開啟
+node scripts/build-report.js --theme templates/themes/<專案>.css   # 換專案配色
+node scripts/build-report.js --masked       # 對外分享版：啟用遮罩防呆檢查
+```
+
+版型與章節結構凍結在 `templates/report.html.template`；配色 token 抽在
+`templates/themes/`，不同專案換主題檔即可。資料欄位規格見
+`templates/report-data.spec.md`，完整範例見 `templates/report-data.example.json`。
+
 ## 目錄結構
 
 | 路徑 | 用途 |
 |---|---|
 | `.claude/agents/` | 六個 agent 定義 |
 | `scripts/scan.sh` | 唯讀掃描腳本 |
+| `scripts/build-report.js` | 確定性 HTML 報告產生器（模板＋資料填充，不經過 LLM） |
 | `templates/finding-format.md` | 發現統一格式——agent 之間的檔案介面 |
+| `templates/report.html.template` | HTML 報告凍結模板（版型與章節結構） |
+| `templates/themes/` | 報告配色 token（依專案抽換） |
+| `templates/report-data.spec.md` | report-data.json 欄位規格 |
+| `templates/report-data.example.json` | 資料檔完整範例（兼設計基準） |
 | `data/` | 掃描原始資料（gitignore，只留本機） |
 | `findings/` | 各支柱分析結果（執行時產生） |
 | `report/` | 最終報告（執行時產生） |
@@ -75,5 +95,5 @@ REGIONS="ap-east-2 us-east-1" scripts/scan.sh   # 指定區域，略過自動偵
 ## 安全注意事項
 
 - `data/` 含帳號內部資訊，**不得提交或外傳**
-- `findings/` 與 `report/` 會引用資源 ID／ARN，對外分享前請自行確認是否需要遮罩
+- 報告預設不遮罩（正式上線用途）；對外分享前用 `build-report.js --masked` 產生遮罩版並通過防呆檢查
 - 憑證失效時請自行更新（`aws configure` 或 `aws sso login`），agent 不會代為處理憑證

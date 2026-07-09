@@ -1,0 +1,181 @@
+{
+  "meta": {
+    "title": "AWS 架構基礎報告",
+    "eyebrow": "AWS Well-Architected · 基礎架構評估",
+    "account": "●●●●●●",
+    "regions": ["us-east-1"],
+    "scan_date": "2026-07-09",
+    "lede": "這是一套以 **ECS Fargate + CloudFront + RDS PostgreSQL** 為主體的網站／API 架構。架構選型合理、跨可用區基礎有到位，**但安全與維運的基本盤有嚴重缺口**：正式資料庫暴露於網際網路、帳號最高權限無多重驗證、全帳號無稽核記錄與告警。此外帳單約 **41% 為結構性浪費**，多數清理一天內可完成。"
+  },
+  "pillars": [
+    {
+      "id": "security",
+      "score": 2,
+      "high": 6,
+      "medium": 6,
+      "low": 3,
+      "p_summary": "多項基礎安全控制缺失：資料庫與儲存桶對外公開、無 MFA、無稽核軌跡與威脅偵測。以下列出高與中風險項（低風險 3 項詳見完整報告）。",
+      "findings": [
+        { "id": "SEC-01", "severity": "高", "title": "資料庫防火牆對 0.0.0.0/0 開放 5432", "desc": "正式 PostgreSQL 暴露全網（UAT 同 port 僅開內網，佐證為誤設）。", "rec": "改用 SG 對 SG 參照，維運存取走 SSM。" },
+        { "id": "SEC-02", "severity": "高", "title": "RDS 設為可公開存取", "desc": "端點可從公網解析。", "rec": "關閉公開存取，移入私有子網。" },
+        { "id": "SEC-03", "severity": "高", "title": "3 個 S3 bucket 公開", "desc": "Public Access Block 四項全關且政策為公開。", "rec": "資料桶開 BPA，靜態站改 CloudFront OAC。" },
+        { "id": "SEC-04", "severity": "高", "title": "無 CloudTrail，帳號零稽核軌跡", "rec": "建立多區域 trail ＋ 完整性驗證 ＋ KMS 加密。" },
+        { "id": "SEC-05", "severity": "高", "title": "root 與所有 IAM 使用者皆無 MFA", "rec": "root 優先啟用 FIDO 金鑰，console 使用者強制 MFA。" },
+        { "id": "SEC-06", "severity": "高", "title": "6 個對外 ALB 全為 HTTP:80", "desc": "CloudFront 至 ALB 為明文傳輸，帳號已有 3 張 ACM 憑證卻未部署。", "rec": "加 HTTPS listener 套憑證。" },
+        { "id": "SEC-07", "severity": "中", "title": "GuardDuty／Config／Security Hub 全未啟用", "rec": "至少啟用 GuardDuty ＋ Security Hub（FSBP 標準）。" },
+        { "id": "SEC-08", "severity": "中", "title": "服務帳戶 access key 逾 18 個月未輪替", "rec": "立即輪替並建 90 天週期，中期改用 IAM Role。" },
+        { "id": "SEC-09", "severity": "中", "title": "未設定 IAM 密碼原則", "rec": "設定長度 14+、複雜度、到期與重用限制。" },
+        { "id": "SEC-10", "severity": "中", "title": "ECS task 指派公有 IP 且共用寬鬆 SG", "desc": "prd「private」子網實際路由至 IGW，公私分離未落實。", "rec": "task 移入真正私有子網並關閉公有 IP。" },
+        { "id": "SEC-11", "severity": "中", "title": "ALB 層無 WAF，可繞過 CloudFront", "desc": "用戶端可直連 ALB 使前緣 WAF／白名單失效。", "rec": "CloudFront 自訂 secret header ＋ ALB 規則驗證。" },
+        { "id": "SEC-12", "severity": "中", "title": "Secrets Manager 密鑰未輪替", "desc": "疑為已刪除資源的殘留憑證。", "rec": "確認後刪除或啟用受管輪替。" }
+      ],
+      "good_note": "RDS／S3 靜態加密、KMS 輪替正常、CloudFront viewer 端 TLSv1.2_2021 ＋ redirect-to-https、ACM 自動續期、CloudFront 前緣有 WAF、root 無 access key。"
+    },
+    {
+      "id": "reliability",
+      "score": 2,
+      "high": 2,
+      "medium": 2,
+      "low": 5,
+      "p_summary": "跨可用區基礎（ALB 跨 3 AZ、RDS Multi-AZ、部署自動回滾）已到位，但運算層單點運行加上零告警，使實際容錯與偵測能力接近於無。",
+      "findings": [
+        { "id": "REL-01", "severity": "高", "title": "三個正式 ECS 服務均單一 task 且無自動擴展", "desc": "單 task 故障即服務中斷數分鐘，跨 AZ 架構的容錯完全未被利用。", "rec": "desired ≥2 ＋ Auto Scaling。" },
+        { "id": "REL-02", "severity": "高", "title": "全帳號 CloudWatch 告警為零", "desc": "故障只能等使用者回報。", "rec": "SNS ＋ ALB／ECS／RDS／CloudFront 最小告警組合。" },
+        { "id": "REL-03", "severity": "中", "title": "S3 無版本控制、無備份計畫", "desc": "正式網站唯一內容來源誤刪即永久遺失。", "rec": "啟用 Versioning ＋ 生命週期。" },
+        { "id": "REL-04", "severity": "中", "title": "RDS 未啟用儲存自動擴展且無空間告警", "desc": "有 storage-full 無預警中斷風險。", "rec": "設 MaxAllocatedStorage ＋ 空間告警。" },
+        { "id": "REL-05", "severity": "低", "title": "UAT 子網含無對外路由的私有子網", "desc": "恢復運行時約半數 task 會拉不到映像（潛在缺陷）。" },
+        { "id": "REL-06", "severity": "低", "title": "目標健康判定約需 150 秒且無暖機寬限", "desc": "拉長故障恢復時間。" },
+        { "id": "REL-07", "severity": "低", "title": "CloudFront 無 origin failover", "desc": "來源故障時無自動切換備援。" },
+        { "id": "REL-08", "severity": "低", "title": "Log group 永不過期（含孤兒 log group）" },
+        { "id": "REL-09", "severity": "低", "title": "RDS 停用自動次要版本升級", "desc": "引擎修補停滯。" }
+      ],
+      "good_note": "RDS Multi-AZ ＋ 7 天備份 ＋ 刪除保護 ＋ Performance Insights、六個服務均有部署 circuit breaker 自動回滾、ALB 跨 3 AZ、prd／uat VPC 隔離、CloudFront 前置緩衝。"
+    },
+    {
+      "id": "performance",
+      "score": 3,
+      "high": 0,
+      "medium": 2,
+      "low": 3,
+      "p_summary": "實測無瓶頸（正式 ALB 14 天日均回應時間 1–55ms，RDS CPU credit 滿額無透支）。主要是配置調校空間：資源過度配置與 CDN 快取可能未發揮。",
+      "findings": [
+        { "id": "PERF-01", "severity": "中", "title": "systemhub 服務資源過度配置", "desc": "配 2 vCPU／4 GB，14 天實際 CPU 平均 0.1%、記憶體 15%。", "rec": "降至 1 vCPU／2 GB 並觀察兩週。" },
+        { "id": "PERF-02", "severity": "中", "title": "CloudFront 快取政策可能未實際快取", "desc": "採 UseOriginCacheControlHeaders（預設 TTL 0、cache key 含全部 cookies），應用若未回 Cache-Control 等於全部回源。", "rec": "靜態路徑套 CachingOptimized。" },
+        { "id": "PERF-03", "severity": "低", "title": "RDS 記憶體餘裕偏低且無指標告警", "rec": "建 credit／記憶體／空間告警，成長時升級 Graviton 機型。" },
+        { "id": "PERF-04", "severity": "低", "title": "Fargate 全為 x86，可遷 ARM64", "desc": "Graviton 性價比更佳（與 COST-04 同項）。" },
+        { "id": "PERF-05", "severity": "低", "title": "5 個 CloudFront 僅 1 個啟用 HTTP/3", "desc": "其餘可免費啟用，不符合的 viewer 自動降級。" }
+      ],
+      "good_note": "ALB 全開 HTTP/2、CloudFront 全開壓縮 ＋ redirect-to-https、S3 站用 CachingOptimized、S3 Gateway Endpoint、RDS gp3 ＋ PostgreSQL 17、Fargate 免機隊管理。"
+    },
+    {
+      "id": "cost",
+      "score": 2,
+      "high": 3,
+      "medium": 4,
+      "low": 2,
+      "p_summary": "約 $150／月（帳單 41%）為結構性浪費，另有承諾折扣空間 $20–27／月。主要來自閒置與冗餘的負載平衡器與防火牆規則。",
+      "findings": [
+        { "id": "COST-01", "severity": "高", "title": "UAT 3 個 ALB ＋ EIP 閒置　·　約 $59／月", "desc": "服務 desired=0、對應 CloudFront 已停用。", "rec": "刪除，以 IaC 保存定義用完即建。" },
+        { "id": "COST-02", "severity": "高", "title": "6 個 ALB 可整併　·　約 $47／月", "desc": "全為單一 HTTP:80 listener 且流量費僅 $0.15／月。", "rec": "prd 整併為 1 個 ALB ＋ host-based routing。" },
+        { "id": "COST-03", "severity": "高", "title": "WAF 孤兒 Web ACL　·　約 $28／月", "desc": "5 個中 2 個未關聯、1 個掛在已停用 distribution。", "rec": "刪除未使用的 ACL。" },
+        { "id": "COST-04", "severity": "中", "title": "Fargate x86 → ARM64　·　約 $18／月", "desc": "約省 20%。" },
+        { "id": "COST-05", "severity": "中", "title": "VPC 費用全為公有 IPv4 位址費　·　約 $3.6／月", "desc": "主要節省已計入 COST-01／02；獨立部分為 RDS 關閉公開存取。" },
+        { "id": "COST-06", "severity": "中", "title": "無 Budgets／成本告警", "desc": "三個月 +10.9%，6 月曾出現來路不明的大型資料庫用量。", "rec": "建 Budget ＋ Cost Anomaly Detection。" },
+        { "id": "COST-07", "severity": "中", "title": "穩定基載無承諾折扣　·　潛在 $20–27／月", "rec": "清理後再購買 Savings Plans ＋ RDS RI。" },
+        { "id": "COST-08", "severity": "低", "title": "Log group 永不過期" },
+        { "id": "COST-09", "severity": "低", "title": "S3 無生命週期規則" }
+      ],
+      "good_note": "S3 Gateway Endpoint 已建、無 NAT（此規模較省）、無閒置 EBS／快照／EIP、RDS 已用 gp3、CloudFront 吸收流量。"
+    }
+  ],
+  "priorities": [
+    {
+      "title": "關閉正式資料庫的公網暴露",
+      "desc": "正式 PostgreSQL 的防火牆對全世界開放 5432 port，且資料庫本身設為可公開存取——任何人都能嘗試連線你的正式資料庫。",
+      "tags": ["SEC-01", "SEC-02", "約半天"]
+    },
+    {
+      "title": "為 root 與所有使用者啟用 MFA",
+      "desc": "帳號最高權限目前只靠一組密碼保護，密碼外洩等於帳號全失。啟用不到一小時。",
+      "tags": ["SEC-05", "<1 小時"]
+    },
+    {
+      "title": "啟用 CloudTrail 稽核軌跡",
+      "desc": "帳號目前沒有任何操作記錄。6 月帳單曾出現一台來路不明的大型資料庫實例，正因無稽核記錄而無法追查是誰所建。",
+      "tags": ["SEC-04", "約半天"]
+    },
+    {
+      "title": "正式服務脫離單點 ＋ 建立基本告警",
+      "desc": "三個正式服務各只跑一份程式，且全帳號零告警——任何一份程式掛掉，服務即中斷數分鐘且無人收到通知。",
+      "tags": ["REL-01", "REL-02", "約一天"]
+    },
+    {
+      "title": "清理閒置資源",
+      "desc": "UAT 的 3 個閒置負載平衡器，加上沒有保護任何流量的防火牆規則，合計約 $87／月 白付。",
+      "tags": ["COST-01", "COST-03", "約半天"]
+    }
+  ],
+  "cost": {
+    "total_monthly": 150,
+    "cap": "已盤點的結構性浪費，約佔目前月帳單 **41%**（$365／月）",
+    "sub": "另有承諾折扣空間 $20–27／月　·　多數清理 <1 天可完成",
+    "items": [
+      { "label": "UAT 閒置 ALB／EIP", "amount": 59 },
+      { "label": "prd ALB 整併", "amount": 47 },
+      { "label": "WAF 孤兒 ACL", "amount": 28 },
+      { "label": "Fargate ARM64", "amount": 18 },
+      { "label": "RDS 關閉公開存取", "amount": 3.6 }
+    ]
+  },
+  "roadmap": [
+    {
+      "title": "Quick Wins",
+      "when": "30 天內 · 多數 <1 天",
+      "items": [
+        "移除 SG 的 **5432 全網開放**規則",
+        "root ＋ 使用者**啟用 MFA**、設密碼原則",
+        "啟用 **CloudTrail** ＋ GuardDuty ＋ Security Hub",
+        "正式服務 **desired ≥2 ＋ Auto Scaling**",
+        "建立 **SNS 告警** ＋ Budgets ＋ 異常偵測",
+        "刪除**閒置 ALB／WAF ACL**（立省 ~$87／月）",
+        "S3 版本控制 ＋ log 保留期",
+        "RDS 儲存自動擴展 ＋ 輪替 access key"
+      ]
+    },
+    {
+      "title": "中期",
+      "when": "1–3 個月",
+      "items": [
+        "RDS **關閉公開存取**、移入私有子網",
+        "S3 桶關閉公開（BPA／OAC）",
+        "ALB 部署 **HTTPS listener** ＋ 限 CloudFront 來源",
+        "prd ALB **整併**為單一 ALB",
+        "ECS 網路收斂：私有子網 ＋ 關公有 IP",
+        "Fargate 遷移 **ARM64**（先 UAT 驗證）",
+        "CloudFront 快取調整",
+        "購買 **Savings Plan ＋ RDS RI**"
+      ]
+    },
+    {
+      "title": "長期",
+      "when": "3 個月以上",
+      "items": [
+        "CloudFront origin failover／降級頁面",
+        "長期憑證全面改 **IAM Role**／Identity Center",
+        "備份還原演練、明確 RTO／RPO、跨區 DR",
+        "IPv6／dualstack 降低公有 IPv4 依賴"
+      ]
+    }
+  ],
+  "method": {
+    "items": [
+      "全程唯讀（僅 describe／list／get API），未對帳號做任何變更；76 個掃描項目 ＋ 分析補查，證據存於本機 `data/`。",
+      "本報告中帳號 ID、資源 ID 與網域名稱均已遮罩。"
+    ],
+    "gaps": [
+      "區域偵測依標籤，本次僅涵蓋 us-east-1；未帶標籤的其他區域資源不在範圍。",
+      "S3 bucket policy 內容、IAM 20 個 role 的權限、RDS 是否強制 SSL 未逐一分析。",
+      "CloudFront 快取命中率、應用層追蹤未量測；指標觀察窗口為 14 天。"
+    ]
+  }
+}
