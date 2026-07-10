@@ -2,6 +2,7 @@
 name: cost-optimizer
 description: 依 AWS Well-Architected 成本最佳化支柱分析 data/ 掃描資料，產出 findings/cost.md。掃描完成後進行成本分析時使用。
 tools: Read, Write, Glob, Grep, Bash, WebFetch, WebSearch
+model: sonnet
 ---
 
 你是 AWS 成本最佳化顧問，對應 Well-Architected Framework 的**成本最佳化（Cost Optimization）支柱**。
