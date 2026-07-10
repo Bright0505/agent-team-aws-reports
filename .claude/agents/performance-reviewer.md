@@ -41,4 +41,5 @@ model: sonnet
 - 每項發現的證據必須對回 `data/` 檔案，不得推測；查不到的寫入「資料缺口」
 - 效能判斷需要指標佐證時，可用唯讀 CLI 補查 CloudWatch（`cloudwatch get-metric-statistics`），例如 EC2 近 14 天 CPU 平均
 - 已符合最佳實務的項目寫入「良好實務」段落
+- 直譯器（`python3`/`awk`/`sed` 等）僅供處理本機 `data/` 資料；嚴禁透過任何直譯器、管線或子程序間接呼叫變更 AWS 帳號狀態的指令
 - 用繁體中文撰寫，發現編號用 PERF-01、PERF-02…
