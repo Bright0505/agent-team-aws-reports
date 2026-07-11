@@ -5,40 +5,59 @@
 #
 # 用法：scripts/scan.sh [profile] [period]
 #   REGIONS="ap-east-2 us-east-1" scripts/scan.sh   # 指定區域（略過自動偵測）
-#   scripts/scan.sh default 2026-07                  # 月報（預設）；2026-Q3 季報；2026 年報；留空=當月
-#   期別只影響成本「滾動趨勢窗」往回看多久＋粒度；資源盤點與效能指標一律為當下快照。
-#   期別來源優先序：PERIOD 環境變數 > 第二個位置參數 > 留空（當月月報）。
+#   scripts/scan.sh default 2026-06                  # 月報：2026 年 6 月（完整月）；2026-Q2 季報；2025 年報；留空=上個月
+#   期別＝一個「已結束的完整週期」（報告主體）；成本另含前 N 期作趨勢比對。
+#   資源盤點與效能指標一律為當下快照，不受期別影響。
+#   期別來源優先序：PERIOD 環境變數 > 第二個位置參數 > 留空（上一個完整月）。
 
 set -u
 PROFILE="${1:-default}"
 export AWS_PROFILE="$PROFILE"
 export AWS_PAGER=""
 
-# ── 報告期別與時間粒度（預設月報）────────────────────────────────────────
-# 期別只做兩件事：(1) 報告標籤 (2) 決定成本「滾動趨勢窗」往回看多久＋粒度。
+# ── 報告期別與時間粒度（嚴格週期；預設「上一個完整月」）──────────────────
+# 期別指向一個「已結束的完整週期」，報告主體＝該週期；成本另含前 N 期作趨勢比對。
+#   月報 YYYY-MM（留空＝上個月）、季報 YYYY-QN、年報 YYYY。
+# 觸發慣例：週期結束後才跑（例：7 月初跑 6 月、隔年初跑去年整年）。
+shift_month() {  # $1=YYYY-MM-01 錨點  $2=帶號月位移(如 +1 -2)  → YYYY-MM-01
+  date -j -v"${2}"m -f "%Y-%m-%d" "$1" +%Y-%m-01 2>/dev/null \
+    || date -d "$1 ${2} month" +%Y-%m-01
+}
+
 PERIOD="${PERIOD:-${2:-}}"
 if [ -z "$PERIOD" ]; then
-  PERIOD="$(date +%Y-%m)"; REPORT_TYPE="month"
+  REPORT_TYPE="month"; TARGET_START="$(shift_month "$(date +%Y-%m-01)" -1)"; PERIOD="${TARGET_START%-01}"
 elif [[ "$PERIOD" =~ ^[0-9]{4}-[0-9]{2}$ ]]; then
-  REPORT_TYPE="month"
-elif [[ "$PERIOD" =~ ^[0-9]{4}-[Qq][1-4]$ ]]; then
+  REPORT_TYPE="month"; TARGET_START="${PERIOD}-01"
+elif [[ "$PERIOD" =~ ^([0-9]{4})-[Qq]([1-4])$ ]]; then
   REPORT_TYPE="quarter"
+  TARGET_START="$(printf '%s-%02d-01' "${BASH_REMATCH[1]}" $(( (BASH_REMATCH[2]-1)*3 + 1 )))"
 elif [[ "$PERIOD" =~ ^[0-9]{4}$ ]]; then
-  REPORT_TYPE="year"
+  REPORT_TYPE="year"; TARGET_START="${PERIOD}-01-01"
 else
-  echo "警告：無法解析期別 '$PERIOD'，退回月報處理" >&2
-  REPORT_TYPE="month"
+  echo "警告：無法解析期別 '$PERIOD'，退回上個月月報" >&2
+  REPORT_TYPE="month"; TARGET_START="$(shift_month "$(date +%Y-%m-01)" -1)"; PERIOD="${TARGET_START%-01}"
 fi
 
-# 成本滾動趨勢窗回看月數（End 排他、截到本月 1 號＝只含已完整月份）。
-# 月報＝近 3 個月（現況）；季報／年報為暫定值，待另外確認後於此調整。
+# 週期長度（月）與趨勢要含的前 N 期。月報＝主體 1 月＋前 2 月（＝近 3 月，與原行為一致）；
+# 季報／年報的前 N 期為暫定值，待另議調整此處。
 case "$REPORT_TYPE" in
-  month)   COST_MONTHS=3 ;;
-  quarter) COST_MONTHS=12 ;;   # 暫定：近 4 季
-  year)    COST_MONTHS=24 ;;   # 暫定：近 2 年
+  month)   SPAN=1;  TREND_PRIOR=2 ;;
+  quarter) SPAN=3;  TREND_PRIOR=1 ;;   # 暫定：主體 1 季 + 前 1 季
+  year)    SPAN=12; TREND_PRIOR=1 ;;   # 暫定：主體 1 年 + 前 1 年
 esac
+TARGET_END="$(shift_month "$TARGET_START" "+${SPAN}")"
+COST_START="$(shift_month "$TARGET_START" "-$(( SPAN * TREND_PRIOR ))")"
+COST_END="$TARGET_END"
 COST_GRANULARITY="MONTHLY"
-echo "報告期別: $PERIOD（型別 $REPORT_TYPE，成本回看 ${COST_MONTHS} 個月 $COST_GRANULARITY）"
+
+# 防呆：期別尚未結束（End 落在未來）時，成本截到本月 1 號並警告
+THIS_MONTH="$(date +%Y-%m-01)"
+if [[ "$COST_END" > "$THIS_MONTH" ]]; then
+  echo "警告：期別 $PERIOD 尚未結束，成本截至 $THIS_MONTH（不含未完成月份）" >&2
+  COST_END="$THIS_MONTH"
+fi
+echo "報告期別: $PERIOD（型別 $REPORT_TYPE，主體 [$TARGET_START→$TARGET_END)，成本窗 [$COST_START→$COST_END) $COST_GRANULARITY）"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DATA="$ROOT/data"
@@ -114,8 +133,7 @@ run "global/cloudfront-distributions" cloudfront list-distributions
 run "global/route53-hosted-zones"     route53 list-hosted-zones
 
 echo "=== 成本（Cost Explorer / Budgets）==="
-COST_END="$(date +%Y-%m-01)"
-COST_START="$(date -v-"${COST_MONTHS}"m +%Y-%m-01 2>/dev/null || date -d "${COST_MONTHS} months ago" +%Y-%m-01)"
+# 成本窗（COST_START/COST_END/COST_GRANULARITY）已於期別解析區塊依報告型別算好
 run "global/cost-by-service" ce get-cost-and-usage \
   --time-period "Start=$COST_START,End=$COST_END" \
   --granularity "$COST_GRANULARITY" --metrics UnblendedCost \
@@ -199,11 +217,14 @@ jq -n --arg account "$ACCOUNT_ID" \
       --arg regions "$(tr '\n' ' ' < "$DATA/active-regions.txt")" \
       --arg period "$PERIOD" \
       --arg report_type "$REPORT_TYPE" \
+      --arg target_start "$TARGET_START" \
+      --arg target_end "$TARGET_END" \
       --arg cost_start "$COST_START" \
       --arg cost_end "$COST_END" \
       --arg cost_granularity "$COST_GRANULARITY" \
       '{account: $account, scanned_at: $time, regions: $regions,
         period: $period, report_type: $report_type,
+        report_period: {start: $target_start, end: $target_end},
         cost_window: {start: $cost_start, end: $cost_end, granularity: $cost_granularity}}' > "$DATA/scan-meta.json"
 
 echo ""
