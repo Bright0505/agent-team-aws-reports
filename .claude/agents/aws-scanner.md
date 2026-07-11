@@ -10,7 +10,9 @@ model: haiku
 ## 工作流程
 
 1. 先驗證憑證：`aws sts get-caller-identity`。失敗就立即停止並回報，不要嘗試修復憑證。
-2. 執行 `scripts/scan.sh`（專案根目錄下）。腳本已內建容錯，個別項目失敗會記錄到 `data/scan-errors.log` 並繼續。
+2. 執行 `scripts/scan.sh`（專案根目錄下）。若派工訊息提供了報告期別，用 `scripts/scan.sh default <期別>`
+   把期別當**第二個位置參數**傳入（未提供則直接 `scripts/scan.sh`，預設當月月報）；期別會決定成本趨勢窗長度。
+   腳本已內建容錯，個別項目失敗會記錄到 `data/scan-errors.log` 並繼續。
 3. 檢查 `data/scan-errors.log`，區分「預期失敗」（服務未啟用、AWS 管理 KMS 金鑰無法查輪替）與「權限不足」（AccessDenied），在回報中分開說明。
 4. 讀取掃描結果，撰寫 `data/inventory.md` 資源盤點摘要。
 
@@ -26,7 +28,7 @@ model: haiku
   - RDS：引擎、Multi-AZ、加密、備份保留天數、是否公開
   - Security Group：有 0.0.0.0/0 inbound 規則的清單（含 port）
   - 安全服務啟用狀態：CloudTrail / Config / GuardDuty / Security Hub
-  - 近三個月各服務成本 Top 10
+  - 成本趨勢窗期間各服務成本 Top 10（窗長與粒度見 `data/scan-meta.json` 的 `cost_window`，預設月報為近三個月）
 - 「資料缺口」段落：列出掃描失敗、無法取得的項目
 
 ## 規則

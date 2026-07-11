@@ -3,13 +3,42 @@
 # 只使用 describe-* / list-* / get-* 唯讀 API，不對帳號做任何變更。
 # 權限不足或服務未啟用時記錄到 data/scan-errors.log 並繼續執行。
 #
-# 用法：scripts/scan.sh [profile]
+# 用法：scripts/scan.sh [profile] [period]
 #   REGIONS="ap-east-2 us-east-1" scripts/scan.sh   # 指定區域（略過自動偵測）
+#   scripts/scan.sh default 2026-07                  # 月報（預設）；2026-Q3 季報；2026 年報；留空=當月
+#   期別只影響成本「滾動趨勢窗」往回看多久＋粒度；資源盤點與效能指標一律為當下快照。
+#   期別來源優先序：PERIOD 環境變數 > 第二個位置參數 > 留空（當月月報）。
 
 set -u
 PROFILE="${1:-default}"
 export AWS_PROFILE="$PROFILE"
 export AWS_PAGER=""
+
+# ── 報告期別與時間粒度（預設月報）────────────────────────────────────────
+# 期別只做兩件事：(1) 報告標籤 (2) 決定成本「滾動趨勢窗」往回看多久＋粒度。
+PERIOD="${PERIOD:-${2:-}}"
+if [ -z "$PERIOD" ]; then
+  PERIOD="$(date +%Y-%m)"; REPORT_TYPE="month"
+elif [[ "$PERIOD" =~ ^[0-9]{4}-[0-9]{2}$ ]]; then
+  REPORT_TYPE="month"
+elif [[ "$PERIOD" =~ ^[0-9]{4}-[Qq][1-4]$ ]]; then
+  REPORT_TYPE="quarter"
+elif [[ "$PERIOD" =~ ^[0-9]{4}$ ]]; then
+  REPORT_TYPE="year"
+else
+  echo "警告：無法解析期別 '$PERIOD'，退回月報處理" >&2
+  REPORT_TYPE="month"
+fi
+
+# 成本滾動趨勢窗回看月數（End 排他、截到本月 1 號＝只含已完整月份）。
+# 月報＝近 3 個月（現況）；季報／年報為暫定值，待另外確認後於此調整。
+case "$REPORT_TYPE" in
+  month)   COST_MONTHS=3 ;;
+  quarter) COST_MONTHS=12 ;;   # 暫定：近 4 季
+  year)    COST_MONTHS=24 ;;   # 暫定：近 2 年
+esac
+COST_GRANULARITY="MONTHLY"
+echo "報告期別: $PERIOD（型別 $REPORT_TYPE，成本回看 ${COST_MONTHS} 個月 $COST_GRANULARITY）"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DATA="$ROOT/data"
@@ -85,11 +114,11 @@ run "global/cloudfront-distributions" cloudfront list-distributions
 run "global/route53-hosted-zones"     route53 list-hosted-zones
 
 echo "=== 成本（Cost Explorer / Budgets）==="
-FIRST_OF_MONTH="$(date +%Y-%m-01)"
-THREE_MONTHS_AGO="$(date -v-3m +%Y-%m-01 2>/dev/null || date -d '3 months ago' +%Y-%m-01)"
+COST_END="$(date +%Y-%m-01)"
+COST_START="$(date -v-"${COST_MONTHS}"m +%Y-%m-01 2>/dev/null || date -d "${COST_MONTHS} months ago" +%Y-%m-01)"
 run "global/cost-by-service" ce get-cost-and-usage \
-  --time-period "Start=$THREE_MONTHS_AGO,End=$FIRST_OF_MONTH" \
-  --granularity MONTHLY --metrics UnblendedCost \
+  --time-period "Start=$COST_START,End=$COST_END" \
+  --granularity "$COST_GRANULARITY" --metrics UnblendedCost \
   --group-by Type=DIMENSION,Key=SERVICE
 run "global/budgets" budgets describe-budgets --account-id "$ACCOUNT_ID"
 
@@ -168,7 +197,14 @@ done
 jq -n --arg account "$ACCOUNT_ID" \
       --arg time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       --arg regions "$(tr '\n' ' ' < "$DATA/active-regions.txt")" \
-      '{account: $account, scanned_at: $time, regions: $regions}' > "$DATA/scan-meta.json"
+      --arg period "$PERIOD" \
+      --arg report_type "$REPORT_TYPE" \
+      --arg cost_start "$COST_START" \
+      --arg cost_end "$COST_END" \
+      --arg cost_granularity "$COST_GRANULARITY" \
+      '{account: $account, scanned_at: $time, regions: $regions,
+        period: $period, report_type: $report_type,
+        cost_window: {start: $cost_start, end: $cost_end, granularity: $cost_granularity}}' > "$DATA/scan-meta.json"
 
 echo ""
 echo "=== 掃描完成 ==="
