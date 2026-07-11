@@ -1,5 +1,10 @@
 # 掃描原始資料含帳號內部資訊，只留本機
 data/
 
+# 每次執行的帳號專屬分析與報告產出（含帳號 ID 等內部資訊），只留本機；
+# 目錄由 scan.sh / Write 工具 / build-report.js 於執行時自動重建
+findings/
+report/
+
 # macOS
 .DS_Store
