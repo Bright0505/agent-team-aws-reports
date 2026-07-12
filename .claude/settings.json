@@ -31,7 +31,20 @@
       "Bash(find:*)",
       "Bash(sort:*)",
       "Bash(uniq:*)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(python3:*)",
+      "Bash(awk:*)",
+      "Bash(sed:*)",
+      "Bash(cut:*)",
+      "Bash(tr:*)",
+      "Bash(date:*)",
+      "Bash(basename:*)",
+      "Bash(dirname:*)",
+      "Bash(printf:*)",
+      "Bash(echo:*)",
+      "Bash(xargs:*)",
+      "Bash(column:*)",
+      "Bash(bc:*)"
     ],
     "deny": [
       "Bash(aws * create-*)",

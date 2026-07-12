@@ -45,4 +45,6 @@ model: sonnet
 - 每項發現的證據必須對回 `data/` 檔案；金額估算需標明依據（如「未掛載 gp3 100GB × $0.08/GB-月」），查不到定價就寫範圍或標註需確認
 - 已符合最佳實務的項目寫入「良好實務」段落
 - 需要補查時只能用唯讀 AWS CLI（describe/list/get，含 `ce` 與 `cloudwatch get-metric-statistics`）
+- 讀取本機 `data/` 檔案一律用 **Read / Glob / Grep 工具**（需一次讀多檔時用 Glob 列出路徑再逐一 Read）；**禁止**用 Bash 的 `for` 迴圈或 `*` 萬用字元展開讀檔，補查用的唯讀 AWS CLI 也要寫成單一、不含 glob/迴圈的指令——這類 shell 展開會觸發權限確認、破壞無人值守
+- 直譯器（`python3`/`awk`/`sed` 等）僅供處理本機 `data/` 資料；嚴禁透過任何直譯器、管線或子程序間接呼叫變更 AWS 帳號狀態的指令
 - 用繁體中文撰寫，發現編號用 COST-01、COST-02…
