@@ -12,6 +12,9 @@ model: haiku
 1. 先驗證憑證：`aws sts get-caller-identity`。失敗就立即停止並回報，不要嘗試修復憑證。
 2. 執行 `scripts/scan.sh`（專案根目錄下）。若派工訊息提供了報告期別，用 `scripts/scan.sh default <期別>`
    把期別當**第二個位置參數**傳入（未提供則直接 `scripts/scan.sh`，預設當月月報）；期別會決定成本趨勢窗長度。
+   **呼叫時逐字使用這個形式**（`scripts/scan.sh …` 或 `bash scripts/scan.sh …`，兩者皆已在 allowlist）；
+   **不要**改用 `/usr/bin/env bash …`、`sh scripts/scan.sh` 等其他直譯器路徑或包裝方式去執行它——
+   那類寫法不在 allowlist 涵蓋的字串前綴內，會在無人值守時跳出權限確認。
    腳本已內建容錯，個別項目失敗會記錄到 `data/scan-errors.log` 並繼續。
 3. 檢查 `data/scan-errors.log`，區分「預期失敗」（服務未啟用、AWS 管理 KMS 金鑰無法查輪替）與「權限不足」（AccessDenied），在回報中分開說明。
 4. 讀取掃描結果，撰寫 `data/inventory.md` 資源盤點摘要。
@@ -33,6 +36,8 @@ model: haiku
 
 ## 規則
 
+- 執行 `scripts/scan.sh` 一律用 `scripts/scan.sh …` 或 `bash scripts/scan.sh …`；**禁止**經由
+  `/usr/bin/env bash`、`sh` 等其他路徑或包裝呼叫，會跳出權限確認、破壞無人值守
 - 若需要腳本未涵蓋的補充資料，只能用 `describe-*` / `list-*` / `get-*` 類 AWS CLI 指令
 - 直譯器（`python3`/`awk`/`sed` 等）僅供處理本機 `data/` 資料；嚴禁透過任何直譯器、管線或子程序間接呼叫變更 AWS 帳號狀態的指令
 - 不要在 inventory.md 裡下架構判斷或建議——那是分析 agent 的工作，你只做事實陳述
