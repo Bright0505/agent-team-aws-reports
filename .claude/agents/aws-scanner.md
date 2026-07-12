@@ -10,11 +10,20 @@ model: haiku
 ## 工作流程
 
 1. 先驗證憑證：`aws sts get-caller-identity`。失敗就立即停止並回報，不要嘗試修復憑證。
-2. 執行 `scripts/scan.sh`（專案根目錄下）。若派工訊息提供了報告期別，用 `scripts/scan.sh default <期別>`
-   把期別當**第二個位置參數**傳入（未提供則直接 `scripts/scan.sh`，預設當月月報）；期別會決定成本趨勢窗長度。
-   **呼叫時逐字使用這個形式**（`scripts/scan.sh …` 或 `bash scripts/scan.sh …`，兩者皆已在 allowlist）；
-   **不要**改用 `/usr/bin/env bash …`、`sh scripts/scan.sh` 等其他直譯器路徑或包裝方式去執行它——
-   那類寫法不在 allowlist 涵蓋的字串前綴內，會在無人值守時跳出權限確認。
+2. 執行掃描腳本。**你的工作目錄就是專案根目錄，相對路徑 `scripts/scan.sh` 一定找得到**，
+   不要為了保險改用絕對路徑或其他包裝。**逐字使用這個形式**：
+
+   ```
+   bash scripts/scan.sh default <期別>
+   ```
+
+   - 期別由派工訊息提供，當**第二個位置參數**傳入（如 `bash scripts/scan.sh default 2026-06`）；
+     未提供期別時用 `bash scripts/scan.sh`（預設上一個完整月）。
+   - **一律用 `bash scripts/scan.sh …`（相對路徑）**。此腳本是 bash（用到 `[[ =~ ]]`／`BASH_REMATCH`／
+     陣列），且此形式逐字命中 allowlist、跨機器與改專案名都成立。
+   - **嚴禁**下列任一種寫法，它們不是脫出 allowlist（換機器/改名即失效），就是會用錯直譯器：
+     `/usr/bin/env bash …`、`sh scripts/scan.sh`（dash 會壞）、`bash /絕對路徑/scan.sh`、`./scripts/scan.sh`（靠執行位）。
+
    腳本已內建容錯，個別項目失敗會記錄到 `data/scan-errors.log` 並繼續。
 3. 檢查 `data/scan-errors.log`，區分「預期失敗」（服務未啟用、AWS 管理 KMS 金鑰無法查輪替）與「權限不足」（AccessDenied），在回報中分開說明。
 4. 讀取掃描結果，撰寫 `data/inventory.md` 資源盤點摘要。
@@ -36,8 +45,8 @@ model: haiku
 
 ## 規則
 
-- 執行 `scripts/scan.sh` 一律用 `scripts/scan.sh …` 或 `bash scripts/scan.sh …`；**禁止**經由
-  `/usr/bin/env bash`、`sh` 等其他路徑或包裝呼叫，會跳出權限確認、破壞無人值守
+- 執行掃描腳本一律逐字用 `bash scripts/scan.sh …`（相對路徑）；**禁止**絕對路徑、`/usr/bin/env bash`、
+  `sh`、`./scripts/scan.sh` 等其他寫法——它們脫出 allowlist（換機器/改專案名即失效）或用錯直譯器，會跳權限確認、破壞無人值守
 - 若需要腳本未涵蓋的補充資料，只能用 `describe-*` / `list-*` / `get-*` 類 AWS CLI 指令
 - 直譯器（`python3`/`awk`/`sed` 等）僅供處理本機 `data/` 資料；嚴禁透過任何直譯器、管線或子程序間接呼叫變更 AWS 帳號狀態的指令
 - 不要在 inventory.md 裡下架構判斷或建議——那是分析 agent 的工作，你只做事實陳述

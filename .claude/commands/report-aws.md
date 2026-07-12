@@ -37,9 +37,10 @@ argument-hint: "[期別，如 2026-07 或 2026-Q3；留空用當月]"
 
 ## 階段 ① — 掃描（同步，前景等待）
 
-派 `aws-scanner`（同步執行、等它完成）跑 `scripts/scan.sh default <期別>`（把期別當**第二個位置參數**傳入，
-成本趨勢窗才會依報告型別調整；期別留空則直接跑 `scripts/scan.sh` 用當月月報）掃描帳號。
-用位置參數而非 `PERIOD=… scripts/scan.sh` 的 env 前綴，才吃得到 allowlist、無人值守不跳權限提示。
+派 `aws-scanner`（同步執行、等它完成）跑 `bash scripts/scan.sh default <期別>`（把期別當**第二個位置參數**
+傳入，成本趨勢窗才會依報告型別調整；期別留空則跑 `bash scripts/scan.sh` 用上一個完整月）掃描帳號。
+**務必逐字用 `bash scripts/scan.sh …`（相對路徑）**：這是唯一同時命中 allowlist、跨機器且改專案名都成立的形式；
+絕對路徑、`/usr/bin/env bash`、`sh`、`PERIOD=… ` env 前綴等寫法都會脫出 allowlist、在無人值守時跳權限提示。
 完成後確認 `data/inventory.md` 與 `data/scan-meta.json` 都存在；
 若缺任一，停止並回報掃描失敗原因（讀 `data/scan-errors.log` 說明）。
 
