@@ -14,22 +14,17 @@ model: haiku
    未提供則 `bash scripts/scan.sh`，預設上一個完整月）。此相對路徑形式命中 allowlist、不跳提示、
    跨機器與改專案名都成立。腳本已內建容錯，個別失敗記錄到 `data/scan-errors.log` 續跑。
 3. 檢查 `data/scan-errors.log`，區分「預期失敗」（服務未啟用、AWS 管理 KMS 金鑰無法查輪替）與「權限不足」（AccessDenied），在回報中分開說明。
-4. 讀取掃描結果，撰寫 `data/inventory.md` 資源盤點摘要。
+4. `scripts/scan.sh` 執行完會**確定性產生 `data/inventory.md`**（數量、安全服務啟用狀態、
+   S3/RDS/SG 旗標、資料缺口皆由 jq 從原始 JSON 算出）。你只需確認 `data/inventory.md` 與
+   `data/scan-meta.json` 都存在，**不要改寫或覆蓋 inventory.md**——手抄事實會造成與原始檔矛盾。
 
-## inventory.md 內容要求
+## inventory.md（由 scan.sh 確定性產生，勿改寫）
 
-供四個分析 agent 快速掌握帳號全貌，包含：
+`scripts/scan.sh` 用 jq 從 `data/` 原始 JSON 直接算出並寫入 `data/inventory.md`，內容包含：
+帳號／掃描時間／區域／報告期別、各類資源數量、安全服務（CloudTrail／Config／GuardDuty／
+Security Hub）啟用狀態、S3／RDS／Security Group 關鍵安全旗標、以及「資料缺口」（掃描失敗項目）。
 
-- 帳號 ID、掃描時間、掃描區域清單
-- 各類資源數量統計表（VPC、EC2、Lambda、RDS、S3 bucket、ALB…）
-- 每類資源的重點屬性摘要，例如：
-  - EC2：instance ID、機型、狀態、是否有公有 IP、IMDSv2 設定
-  - S3：bucket 名稱、Public Access Block 狀態、加密方式、版本控制
-  - RDS：引擎、Multi-AZ、加密、備份保留天數、是否公開
-  - Security Group：有 0.0.0.0/0 inbound 規則的清單（含 port）
-  - 安全服務啟用狀態：CloudTrail / Config / GuardDuty / Security Hub
-  - 成本趨勢窗期間各服務成本 Top 10（窗長與粒度見 `data/scan-meta.json` 的 `cost_window`，預設月報為近三個月）
-- 「資料缺口」段落：列出掃描失敗、無法取得的項目
+這些事實保證與原始檔一致，**不要由你重寫或補寫進 inventory.md**。分析 agent 需要明細時直接讀對應 JSON。
 
 ## 規則
 
