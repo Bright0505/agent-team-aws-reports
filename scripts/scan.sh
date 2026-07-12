@@ -54,10 +54,10 @@ COST_GRANULARITY="MONTHLY"
 # 防呆：期別尚未結束（End 落在未來）時，成本截到本月 1 號並警告
 THIS_MONTH="$(date +%Y-%m-01)"
 if [[ "$COST_END" > "$THIS_MONTH" ]]; then
-  echo "警告：期別 $PERIOD 尚未結束，成本截至 $THIS_MONTH（不含未完成月份）" >&2
+  echo "警告：期別 ${PERIOD} 尚未結束，成本截至 ${THIS_MONTH}（不含未完成月份）" >&2
   COST_END="$THIS_MONTH"
 fi
-echo "報告期別: $PERIOD（型別 $REPORT_TYPE，主體 [$TARGET_START→$TARGET_END)，成本窗 [$COST_START→$COST_END) $COST_GRANULARITY）"
+echo "報告期別: ${PERIOD}（型別 ${REPORT_TYPE}，主體 [${TARGET_START}→${TARGET_END})，成本窗 [${COST_START}→${COST_END}) ${COST_GRANULARITY}）"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DATA="$ROOT/data"
@@ -231,4 +231,4 @@ echo ""
 echo "=== 掃描完成 ==="
 echo "資料位置: $DATA"
 FAILS="$(grep -c '^FAILED' "$ERRLOG" 2>/dev/null || true)"
-echo "失敗項目: $FAILS（詳見 data/scan-errors.log，多為服務未啟用或權限不足，屬預期）"
+echo "失敗項目: ${FAILS}（詳見 data/scan-errors.log，多為服務未啟用或權限不足，屬預期）"
