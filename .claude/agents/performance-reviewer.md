@@ -39,7 +39,7 @@ model: sonnet
 ## 規則
 
 - 每項發現的證據必須對回 `data/` 檔案，不得推測；查不到的寫入「資料缺口」
-- 效能判斷需要指標佐證時，可用唯讀 CLI 補查 CloudWatch（`cloudwatch get-metric-statistics`），例如 EC2 近 14 天 CPU 平均
+- 效能判斷需要指標佐證時，可用唯讀 CLI 補查 CloudWatch（`cloudwatch get-metric-statistics`），例如 RDS/EC2 近 14 天 CPU 平均。**時間窗一律填 `data/scan-meta.json` 的 `metrics_window`（近 14 天）字面時間戳**：先用 Read 讀出 `metrics_window.start`／`metrics_window.end`，直接填進 `--start-time`／`--end-time`；**嚴禁在 aws 指令內用 `$(date …)` 命令替換**——它無法靜態分析、會觸發權限確認、破壞無人值守
 - 已符合最佳實務的項目寫入「良好實務」段落
 - 讀取本機 `data/` 檔案一律用 **Read / Glob / Grep 工具**（需一次讀多檔時用 Glob 列出路徑再逐一 Read）；**禁止**用 Bash 的 `for` 迴圈或 `*` 萬用字元展開讀檔，補查用的唯讀 AWS CLI 也要寫成單一、不含 glob/迴圈的指令——這類 shell 展開會觸發權限確認、破壞無人值守
 - 直譯器（`python3`/`awk`/`sed` 等）僅供處理本機 `data/` 資料；嚴禁透過任何直譯器、管線或子程序間接呼叫變更 AWS 帳號狀態的指令

@@ -212,8 +212,12 @@ for R in $(cat "$DATA/active-regions.txt"); do
 done
 
 # 掃描中繼資料
+# 效能指標窗（近 14 天）預先算成字面時間戳，供分析 agent 直接填入 CloudWatch 查詢，
+# 避免它們在 aws 指令內用 $(date …) 命令替換而觸發權限確認。
+NOW_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+METRICS_START="$(date -u -v-14d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '-14 days' +%Y-%m-%dT%H:%M:%SZ)"
 jq -n --arg account "$ACCOUNT_ID" \
-      --arg time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --arg time "$NOW_UTC" \
       --arg regions "$(tr '\n' ' ' < "$DATA/active-regions.txt")" \
       --arg period "$PERIOD" \
       --arg report_type "$REPORT_TYPE" \
@@ -222,10 +226,13 @@ jq -n --arg account "$ACCOUNT_ID" \
       --arg cost_start "$COST_START" \
       --arg cost_end "$COST_END" \
       --arg cost_granularity "$COST_GRANULARITY" \
+      --arg metrics_start "$METRICS_START" \
+      --arg metrics_end "$NOW_UTC" \
       '{account: $account, scanned_at: $time, regions: $regions,
         period: $period, report_type: $report_type,
         report_period: {start: $target_start, end: $target_end},
-        cost_window: {start: $cost_start, end: $cost_end, granularity: $cost_granularity}}' > "$DATA/scan-meta.json"
+        cost_window: {start: $cost_start, end: $cost_end, granularity: $cost_granularity},
+        metrics_window: {start: $metrics_start, end: $metrics_end}}' > "$DATA/scan-meta.json"
 
 # ── 確定性產生 data/inventory.md ─────────────────────────────────────────
 # 數量、安全服務啟用狀態、關鍵安全旗標一律由 jq 從原始 JSON 算出、直接寫檔，
