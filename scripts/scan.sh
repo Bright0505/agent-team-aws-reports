@@ -212,8 +212,12 @@ for R in $(cat "$DATA/active-regions.txt"); do
 done
 
 # 掃描中繼資料
+# 效能指標窗（近 14 天）預先算成字面時間戳，供分析 agent 直接填入 CloudWatch 查詢，
+# 避免它們在 aws 指令內用 $(date …) 命令替換而觸發權限確認。
+NOW_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+METRICS_START="$(date -u -v-14d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '-14 days' +%Y-%m-%dT%H:%M:%SZ)"
 jq -n --arg account "$ACCOUNT_ID" \
-      --arg time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --arg time "$NOW_UTC" \
       --arg regions "$(tr '\n' ' ' < "$DATA/active-regions.txt")" \
       --arg period "$PERIOD" \
       --arg report_type "$REPORT_TYPE" \
@@ -222,10 +226,140 @@ jq -n --arg account "$ACCOUNT_ID" \
       --arg cost_start "$COST_START" \
       --arg cost_end "$COST_END" \
       --arg cost_granularity "$COST_GRANULARITY" \
+      --arg metrics_start "$METRICS_START" \
+      --arg metrics_end "$NOW_UTC" \
       '{account: $account, scanned_at: $time, regions: $regions,
         period: $period, report_type: $report_type,
         report_period: {start: $target_start, end: $target_end},
-        cost_window: {start: $cost_start, end: $cost_end, granularity: $cost_granularity}}' > "$DATA/scan-meta.json"
+        cost_window: {start: $cost_start, end: $cost_end, granularity: $cost_granularity},
+        metrics_window: {start: $metrics_start, end: $metrics_end}}' > "$DATA/scan-meta.json"
+
+# ── 確定性產生 data/inventory.md ─────────────────────────────────────────
+# 數量、安全服務啟用狀態、關鍵安全旗標一律由 jq 從原始 JSON 算出、直接寫檔，
+# 不經 LLM 手抄，確保 inventory 與 data/ 完全一致（消除摘要與原始檔矛盾）。
+jqlen() {  # $1=檔案  $2=jq 陣列運算式  → 長度（檔不存在/錯誤時 0）
+  [ -f "$1" ] && jq -r "try ((${2}) | length) catch 0" "$1" 2>/dev/null || echo 0
+}
+sum_region_len() {  # $1=區域內檔名  $2=jq 陣列運算式  → 跨區加總
+  local total=0 r n
+  while IFS= read -r r; do
+    [ -z "$r" ] && continue
+    n="$(jqlen "$DATA/regions/$r/$1" "$2")"
+    total=$(( total + ${n:-0} ))
+  done < "$DATA/active-regions.txt"
+  echo "$total"
+}
+
+write_inventory() {
+  local INV="$DATA/inventory.md" G="$DATA/global"
+  local n_s3 n_cf n_iam n_vpc n_subnet n_sg n_alb n_rds n_ddb n_ec2 n_lambda n_ecs n_nat n_ebs n_cwalarm
+  n_s3="$(jqlen "$G/s3-buckets.json" '.Buckets')"
+  n_cf="$(jqlen "$G/cloudfront-distributions.json" '.DistributionList.Items')"
+  n_iam="$(jqlen "$G/iam-users.json" '.Users')"
+  n_vpc="$(sum_region_len vpcs.json '.Vpcs')"
+  n_subnet="$(sum_region_len subnets.json '.Subnets')"
+  n_sg="$(sum_region_len security-groups.json '.SecurityGroups')"
+  n_alb="$(sum_region_len load-balancers.json '.LoadBalancers')"
+  n_rds="$(sum_region_len rds-instances.json '.DBInstances')"
+  n_ddb="$(sum_region_len dynamodb-tables.json '.TableNames')"
+  n_ec2="$(sum_region_len ec2-instances.json '[.Reservations[].Instances[]]')"
+  n_lambda="$(sum_region_len lambda-functions.json '.Functions')"
+  n_ecs="$(sum_region_len ecs-clusters.json '.clusterArns')"
+  n_nat="$(sum_region_len nat-gateways.json '.NatGateways')"
+  n_ebs="$(sum_region_len ebs-volumes.json '.Volumes')"
+  n_cwalarm="$(sum_region_len cloudwatch-alarms.json '.MetricAlarms')"
+
+  # 安全服務啟用狀態（跨區）
+  local ct gd cfg sh sh_status cfg_status
+  ct="$(sum_region_len cloudtrail-trails.json '.trailList')"
+  gd="$(sum_region_len guardduty-detectors.json '.DetectorIds')"
+  cfg="$(sum_region_len config-recorders.json '[.ConfigurationRecordersStatus[]? | select(.recording==true)]')"
+  sh=0
+  while IFS= read -r r; do [ -z "$r" ] && continue; [ -f "$DATA/regions/$r/securityhub.json" ] && sh=$(( sh + 1 )); done < "$DATA/active-regions.txt"
+  [ "${cfg:-0}" -gt 0 ] && cfg_status="啟用（${cfg} recorder recording）" || cfg_status="未啟用"
+  [ "${sh:-0}"  -gt 0 ] && sh_status="啟用（${sh} 區）" || sh_status="未啟用（未訂閱）"
+
+  {
+    echo "# 資源盤點摘要"
+    echo
+    echo "> 本檔的數量與啟用狀態由 \`scripts/scan.sh\` 以 jq 從 \`data/\` 原始 JSON 確定性產生，"
+    echo "> 保證與原始檔一致；分析 agent 若需明細請直接讀對應 JSON。"
+    echo
+    echo "- 帳號：$ACCOUNT_ID"
+    echo "- 掃描時間：$(jq -r .scanned_at "$DATA/scan-meta.json")"
+    echo "- 掃描區域：$(tr '\n' ' ' < "$DATA/active-regions.txt")"
+    echo "- 報告期別：${PERIOD} / ${REPORT_TYPE}；成本窗 ${COST_START} ~ ${COST_END} / ${COST_GRANULARITY}"
+    echo
+    echo "## 資源數量"
+    echo
+    echo "| 資源 | 數量 |"
+    echo "|---|---:|"
+    echo "| VPC | $n_vpc |"
+    echo "| Subnet | $n_subnet |"
+    echo "| Security Group | $n_sg |"
+    echo "| ALB | $n_alb |"
+    echo "| RDS 實例 | $n_rds |"
+    echo "| DynamoDB 表 | $n_ddb |"
+    echo "| EC2 實例 | $n_ec2 |"
+    echo "| Lambda | $n_lambda |"
+    echo "| ECS 叢集 | $n_ecs |"
+    echo "| NAT Gateway | $n_nat |"
+    echo "| EBS Volume | $n_ebs |"
+    echo "| S3 Bucket | $n_s3 |"
+    echo "| CloudFront 發佈 | $n_cf |"
+    echo "| IAM 使用者 | $n_iam |"
+    echo "| CloudWatch 告警 | $n_cwalarm |"
+    echo
+    echo "## 安全服務啟用狀態"
+    echo
+    echo "| 服務 | 狀態 |"
+    echo "|---|---|"
+    echo "| CloudTrail | $( [ "${ct:-0}" -gt 0 ] && echo "啟用（${ct} trail）" || echo "未啟用" ) |"
+    echo "| GuardDuty | $( [ "${gd:-0}" -gt 0 ] && echo "啟用（${gd} detector）" || echo "未啟用" ) |"
+    echo "| AWS Config | $cfg_status |"
+    echo "| Security Hub | $sh_status |"
+    echo
+    echo "## S3 Bucket 關鍵旗標"
+    echo
+    echo "| Bucket | 預設加密 | Public Access Block | 版本控制 | Policy 公開 |"
+    echo "|---|---|---|---|---|"
+    while IFS= read -r b; do
+      [ -z "$b" ] && continue
+      local d="$G/s3-buckets-detail" enc pab ver pub
+      enc="$( [ -f "$d/$b-encryption.json" ] && jq -r 'try (.ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm) catch "無"' "$d/$b-encryption.json" 2>/dev/null || echo "無" )"
+      pab="$( [ -f "$d/$b-public-access-block.json" ] && echo "有" || echo "無" )"
+      ver="$( [ -f "$d/$b-versioning.json" ] && jq -r 'try (.Status // "未啟用") catch "未啟用"' "$d/$b-versioning.json" 2>/dev/null || echo "未啟用" )"
+      pub="$( [ -f "$d/$b-policy-status.json" ] && jq -r 'try (if .PolicyStatus.IsPublic then "是" else "否" end) catch "否"' "$d/$b-policy-status.json" 2>/dev/null || echo "否" )"
+      echo "| $b | ${enc:-無} | $pab | ${ver:-未啟用} | ${pub:-否} |"
+    done < <(jq -r 'try (.Buckets[].Name) catch empty' "$G/s3-buckets.json" 2>/dev/null)
+    echo
+    echo "## RDS 實例關鍵旗標"
+    echo
+    echo "| 實例 | 引擎 | Multi-AZ | 靜態加密 | 公開存取 | 備份保留(天) |"
+    echo "|---|---|---|---|---|---:|"
+    while IFS= read -r r; do
+      [ -z "$r" ] && continue
+      jq -r 'try (.DBInstances[] | "| \(.DBInstanceIdentifier) | \(.Engine) \(.EngineVersion) | \(.MultiAZ) | \(.StorageEncrypted) | \(.PubliclyAccessible) | \(.BackupRetentionPeriod) |") catch empty' "$DATA/regions/$r/rds-instances.json" 2>/dev/null
+    done < "$DATA/active-regions.txt"
+    echo
+    echo "## 對外開放的 Security Group（含 0.0.0.0/0 inbound）"
+    echo
+    while IFS= read -r r; do
+      [ -z "$r" ] && continue
+      jq -r 'try (.SecurityGroups[] | select(any(.IpPermissions[]?.IpRanges[]?; .CidrIp=="0.0.0.0/0")) | "- \(.GroupId)（\(.GroupName)）ports: " + ([.IpPermissions[] | select(any(.IpRanges[]?; .CidrIp=="0.0.0.0/0")) | (.FromPort // "all")|tostring] | join(","))) catch empty' "$DATA/regions/$r/security-groups.json" 2>/dev/null
+    done < "$DATA/active-regions.txt"
+    echo
+    echo "## 資料缺口（掃描失敗項目）"
+    echo
+    if [ -s "$ERRLOG" ] && grep -q '^FAILED' "$ERRLOG"; then
+      grep '^FAILED' "$ERRLOG" | sed 's/^FAILED: /- /'
+    else
+      echo "- （無）"
+    fi
+  } > "$INV"
+  echo "已產生 data/inventory.md（確定性）"
+}
+write_inventory
 
 echo ""
 echo "=== 掃描完成 ==="
