@@ -13,10 +13,10 @@ model: haiku
 2. 掃描：用 `bash scripts/scan.sh default <期別>` 執行（期別由派工訊息當第二個位置參數傳入；
    未提供則 `bash scripts/scan.sh`，預設上一個完整月）。此相對路徑形式命中 allowlist、不跳提示、
    跨機器與改專案名都成立。腳本已內建容錯，個別失敗記錄到 `data/scan-errors.log` 續跑。
-3. 檢查 `data/scan-errors.log`，區分「預期失敗」（服務未啟用、AWS 管理 KMS 金鑰無法查輪替）與「權限不足」（AccessDenied），在回報中分開說明。
+3. 用 **Read 工具**讀 `data/scan-errors.log`，區分「預期失敗」（服務未啟用、AWS 管理 KMS 金鑰無法查輪替）與「權限不足」（AccessDenied），在回報中分開說明。
 4. `scripts/scan.sh` 執行完會**確定性產生 `data/inventory.md`**（數量、安全服務啟用狀態、
-   S3/RDS/SG 旗標、資料缺口皆由 jq 從原始 JSON 算出）。你只需確認 `data/inventory.md` 與
-   `data/scan-meta.json` 都存在，**不要改寫或覆蓋 inventory.md**——手抄事實會造成與原始檔矛盾。
+   S3/RDS/SG 旗標、資料缺口皆由 jq 從原始 JSON 算出）。用 **Read／Glob 工具**確認 `data/inventory.md`
+   與 `data/scan-meta.json` 都存在即可，**不要改寫或覆蓋 inventory.md**——手抄事實會造成與原始檔矛盾。
 
 ## inventory.md（由 scan.sh 確定性產生，勿改寫）
 
@@ -28,6 +28,8 @@ Security Hub）啟用狀態、S3／RDS／Security Group 關鍵安全旗標、以
 
 ## 規則
 
+- **Bash 只用於兩件事**：`bash scripts/scan.sh …` 與唯讀 aws 補查。確認檔案存在、讀檔內容一律改用
+  Read／Glob／Grep 工具（相對路徑、不經 shell）——用 `ls`／`file`／`cat` 配絕對路徑或 `{}` brace 展開會跳權限提示。
 - 若需要腳本未涵蓋的補充資料，只能用 `describe-*` / `list-*` / `get-*` 類 AWS CLI 指令
 - 直譯器（`python3`/`awk`/`sed` 等）僅供處理本機 `data/` 資料；嚴禁透過任何直譯器、管線或子程序間接呼叫變更 AWS 帳號狀態的指令
 - 不要在 inventory.md 裡下架構判斷或建議——那是分析 agent 的工作，你只做事實陳述
