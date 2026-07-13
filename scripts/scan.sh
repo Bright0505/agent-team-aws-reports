@@ -232,3 +232,8 @@ echo "=== 掃描完成 ==="
 echo "資料位置: $DATA"
 FAILS="$(grep -c '^FAILED' "$ERRLOG" 2>/dev/null || true)"
 echo "失敗項目: ${FAILS}（詳見 data/scan-errors.log，多為服務未啟用或權限不足，屬預期）"
+
+# 精簡樣板欄位多的掃描資料到 data/digest/（純本機 jq，不呼叫 AWS）。
+# 原始 JSON 保持完整不動，digest 只是它的確定性投影。
+echo ""
+bash "$ROOT/scripts/digest.sh"

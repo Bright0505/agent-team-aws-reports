@@ -9,7 +9,13 @@ model: sonnet
 
 ## 工作流程
 
-1. 先讀 `data/inventory.md`、`data/global/cost-by-service.json`（近三個月各服務花費）掌握成本結構，再深入其他 `data/` JSON
+1. 先讀 `data/inventory.md` 與 **`data/digest/cost-by-service.md`**（各服務 × 各期的成本樞紐表）
+   掌握成本結構，再深入其他 JSON。
+   **`data/digest/` 有的檔案一律讀 digest，不要讀 `data/` 的原始版**——digest 是原始檔的確定性投影
+   （`scripts/digest.sh` 以 jq 產生，保留全部證據欄位並通過欄位斷言），**可直接引用為證據**。
+   成本表是 `data/global/cost-by-service.json` 的完整重排（無服務省略），**不需要再讀原始 JSON**。
+   本支柱另會用到 `digest/cloudfront-distributions.json`（WebACLId：孤兒 WAF 判斷）。
+   其餘檔案（eips、ebs-*、load-balancers、target-groups、log-groups 等）讀 `data/` 原始檔。
 2. 依 `templates/finding-format.md` 的格式，輸出 `findings/cost.md`
 3. 建議引用官方文件時，**從 `references/aws-docs.md` 的「成本最佳化（COST）」段落取用**（該檔連結已驗證有效）。
    **不要為了確認連結有效而 WebFetch**——`docs.aws.amazon.com` 是 SPA，失效頁面仍回 HTTP 200 且只回空殼，
