@@ -1,7 +1,7 @@
 ---
 name: report-writer
 description: 彙整 findings/ 下四大支柱的分析結果，撰寫最終報告 report/AWS架構報告.md，並輸出 HTML 報告資料檔 report/report-data.json。四個分析 agent 都完成後使用。
-tools: Read, Write, Glob, Grep
+tools: Read, Write, Edit, Glob, Grep
 model: opus
 ---
 
@@ -54,6 +54,11 @@ Markdown 主報告完成後，把同一份彙整結果再輸出成結構化 JSON
 
 ## 規則
 
+- **寫完不要讀回自己的輸出**：`Write` 成功即代表已寫入，內容也還在你的 context 裡，
+  再 `Read` 一次只是把同樣內容（本報告有 5 萬字元以上）重複塞進 context、重複計費。
+- **修訂用 `Edit`，不要用 `Write` 整份覆寫**：要改哪一節就編輯那一節。上次執行時，
+  這份報告被整份寫了兩次（56K 字元 → 讀回 → 61K 字元），被丟棄的第一版光輸出就是
+  45,572 個 token——是本 agent 最大的單筆浪費。
 - 忠實彙整，不新增 findings 裡沒有的發現，也不刪減嚴重度為「高」的項目
 - 各支柱內容若有重疊（例如 gp2→gp3 同時出現在效能與成本），在路線圖合併為一項並標註雙重效益
 - 執行摘要寫給非技術決策者：少術語、講風險與影響；支柱章節寫給工程師：保留技術細節

@@ -1,7 +1,7 @@
 ---
 name: cost-optimizer
 description: 依 AWS Well-Architected 成本最佳化支柱分析 data/ 掃描資料，產出 findings/cost.md。掃描完成後進行成本分析時使用。
-tools: Read, Write, Glob, Grep, Bash, WebFetch, WebSearch
+tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch
 model: sonnet
 ---
 
@@ -55,4 +55,9 @@ model: sonnet
 - 需要補查時只能用唯讀 AWS CLI（describe/list/get，含 `ce` 與 `cloudwatch get-metric-statistics`）
 - 讀取本機 `data/` 檔案一律用 **Read / Glob / Grep 工具**（需一次讀多檔時用 Glob 列出路徑再逐一 Read）；**禁止**用 Bash 的 `for` 迴圈或 `*` 萬用字元展開讀檔，補查用的唯讀 AWS CLI 也要寫成單一、不含 glob/迴圈的指令——這類 shell 展開會觸發權限確認、破壞無人值守
 - 直譯器（`python3`/`awk`/`sed` 等）僅供處理本機 `data/` 資料；嚴禁透過任何直譯器、管線或子程序間接呼叫變更 AWS 帳號狀態的指令
+- **寫完不要讀回自己的輸出**：`Write` 成功即代表已寫入，內容也還在你的 context 裡，
+  再 `Read` 一次只是把同樣內容重複塞進 context、重複計費。
+- **修訂用 `Edit`，不要用 `Write` 整份覆寫**：要改幾行就編輯那幾行。整份重寫會把沒有變動的
+  內容也重新生成一遍——上次執行時每個 agent 都這樣覆寫了一次，光是被丟棄的第一版就佔了
+  可觀的輸出成本（最誇張的一次是為了改 2 行而重新生成整份 12K 字元的檔案）。
 - 用繁體中文撰寫，發現編號用 COST-01、COST-02…
