@@ -82,10 +82,19 @@ node scripts/build-report.js
 bash scripts/check-links.sh report/AWS架構報告.md findings/security.md findings/reliability.md findings/performance.md findings/cost.md
 ```
 
-- 全數有效 → 進入收尾。
+- 全數有效 → 進入階段 ⑥。
 - 有失效連結（exit 1）→ **不要中止流程**。把失效清單記下來，在收尾摘要中列出，
   並提醒需更新 `references/aws-docs.md`。
   （`docs.aws.amazon.com` 失效頁面仍回 HTTP 200，只能靠這支腳本判斷，WebFetch 看不出來。）
+
+## 階段 ⑥ — 存檔本期報告（由你＝主對話執行）
+
+```
+bash scripts/archive-report.sh
+```
+
+存到 `report/archive/<期別>/`。**這步不可略過**：`report/` 與 `findings/` 都被 gitignore 且每跑一次
+整份覆蓋，不存檔的話上一期報告就永久消失，日後無法做跨期回歸檢查（比對這期是否有發現無聲消失或被降級）。
 
 ## 收尾（唯一的回報時機）
 

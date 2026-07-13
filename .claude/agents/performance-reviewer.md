@@ -12,7 +12,8 @@ model: sonnet
 1. 先讀 `data/inventory.md` 與 `data/scan-meta.json` 掌握全貌，再深入相關 JSON。
    **`data/digest/` 有的檔案一律讀 digest，不要讀 `data/` 的原始版**——digest 是原始檔的確定性投影
    （`scripts/digest.sh` 以 jq 產生，保留全部證據欄位並通過欄位斷言），**可直接引用為證據**。
-   本支柱會用到的 digest：`digest/cloudfront-distributions.json`、`digest/regions/<區域>/subnets.json`。
+   本支柱會用到的 digest：`digest/network-facts.md`（子網實際路由與資源落點）、
+   `digest/cloudfront-distributions.json`、`digest/regions/<區域>/subnets.json`。
    其餘檔案（load-balancers、target-groups、rds-instances 等）讀 `data/` 原始檔。
    若需要 digest 未涵蓋的欄位，回頭讀 `data/` 原始檔（原始資料永遠完整保留）。
 2. 依 `templates/finding-format.md` 的格式，輸出 `findings/performance.md`
@@ -47,11 +48,21 @@ model: sonnet
 - 每項發現的證據必須對回 `data/` 檔案，不得推測；查不到的寫入「資料缺口」
 - 效能判斷需要指標佐證時，可用唯讀 CLI 補查 CloudWatch（`cloudwatch get-metric-statistics`），例如 EC2 近 14 天 CPU 平均
 - 已符合最佳實務的項目寫入「良好實務」段落
-- 讀取本機 `data/` 檔案一律用 **Read / Glob / Grep 工具**（需一次讀多檔時用 Glob 列出路徑再逐一 Read）；**禁止**用 Bash 的 `for` 迴圈或 `*` 萬用字元展開讀檔，補查用的唯讀 AWS CLI 也要寫成單一、不含 glob/迴圈的指令——這類 shell 展開會觸發權限確認、破壞無人值守
+- 讀取本機 `data/` 檔案一律用 **Read / Glob / Grep 工具**（需一次讀多檔時用 Glob 列出路徑再逐一 Read）；
+  **絕對禁止**用 Bash 的 `for` 迴圈、`*` 萬用字元或任何含 `$變數` 展開的指令讀檔
+  （如 `for f in a b c; do cat "$f"; done`）。補查用的唯讀 AWS CLI 也要寫成單一、不含 glob/迴圈的指令。
+  **理由**：Claude Code 的 Bash 權限是字串比對，只要指令含 shell 展開就無法靜態驗證，
+  **一定會跳權限確認、破壞無人值守，而且沒有任何白名單能放行**。
+  檔案很多、覺得一個個 Read 很煩時，改讀 `data/digest/` 的合併表（例如 S3 的 12 個小檔已合併為
+  `digest/s3-buckets.md`）；digest 沒涵蓋的就老實逐一 Read——寧可多幾個 Read，也不要卡住整條流程
 - 直譯器（`python3`/`awk`/`sed` 等）僅供處理本機 `data/` 資料；嚴禁透過任何直譯器、管線或子程序間接呼叫變更 AWS 帳號狀態的指令
-- **寫完不要讀回自己的輸出**：`Write` 成功即代表已寫入，內容也還在你的 context 裡，
-  再 `Read` 一次只是把同樣內容重複塞進 context、重複計費。
-- **修訂用 `Edit`，不要用 `Write` 整份覆寫**：要改幾行就編輯那幾行。整份重寫會把沒有變動的
-  內容也重新生成一遍——上次執行時每個 agent 都這樣覆寫了一次，光是被丟棄的第一版就佔了
-  可觀的輸出成本（最誇張的一次是為了改 2 行而重新生成整份 12K 字元的檔案）。
+- **寫完必須自我複查一輪**（不可略過）：逐條對照上面的「檢查重點」，確認每一項都真的核對過掃描資料，
+  特別是**跨檔交叉比對**（例：RDS 的 DB subnet group × subnets × route-tables → 資料庫到底落在
+  公有還是私有子網；子網命名 vs 實際路由）。這類關聯已由 `data/digest/network-facts.md` 算好，
+  **務必讀它**。有遺漏或嚴重度judgment需修正，就用 `Edit` 補上。
+  （2026-07 的執行就是漏了這一輪：把「RDS 落在全部通 IGW 的公有子網」[高] 寫成「RDS 可公開存取」[中]，
+  還給出「確認 DB 位於無 IGW 路由的私有子網」這條在該帳號做不到的建議。）
+- **複查時不要用 `Read` 讀回自己剛寫的檔**：內容還在你的 context 裡，再讀一次只是重複計費。
+- **修訂一律用 `Edit`，不要用 `Write` 整份覆寫**：要改幾行就編輯那幾行。整份重寫會把沒變動的
+  內容也重新生成一遍（曾發生為了改 2 行而重新生成整份 12K 字元檔案的情況）。
 - 用繁體中文撰寫，發現編號用 PERF-01、PERF-02…

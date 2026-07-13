@@ -83,7 +83,105 @@ if [ -f "$CE" ]; then
   if [ "$n_src" -eq "$((n_dst - 1))" ]; then
     echo "    ✅ 服務數一致（$n_src 個）"
   else
-    echo "    ❌ 斷言失敗：服務數不符（原始 $n_src、digest $((n_dst - 1))）" >&2
+    echo "    ❌ 斷言失敗：服務數不符（原始 ${n_src}、digest $((n_dst - 1))）" >&2
+    FAIL=$((FAIL + 1))
+  fi
+fi
+
+# ── S3：把 s3-buckets-detail/ 的一堆小檔併成一張表 ──────────────────
+# 掃描會為每個 bucket 產生 4–5 個各約 270 位元組的小檔（3 bucket = 12 個檔）。
+# agent 要看完就得 Read 十幾次，於是會忍不住改用 `for` 迴圈 + cat——那含 shell 展開，
+# 一定會觸發權限確認、破壞無人值守。合併成一張表後，一次 Read 就看完，誘因消失。
+#
+# ⚠️ 缺檔的語意必須區分，否則會推出相反結論：
+#    NoSuchLifecycleConfiguration / NoSuchPublicAccessBlock 等 → 該項「未設定」（這是有效證據）
+#    AccessDenied 等其他錯誤                                   → 「查詢失敗」（這是資料缺口）
+#    versioning 檔存在但為空 → AWS CLI 對從未啟用版本控制的 bucket 回空輸出 → 「未啟用」
+S3LIST="$DATA/global/s3-buckets.json"
+S3D="$DATA/global/s3-buckets-detail"
+if [ -f "$S3LIST" ] && [ -d "$S3D" ]; then
+  # 判斷某個 detail 檔的狀態：值 / 未設定 / 查詢失敗
+  s3state() {  # $1=bucket $2=aspect  → 印出狀態字串
+    local f="$S3D/$1-$2.json"
+    if [ -f "$f" ]; then
+      if [ ! -s "$f" ]; then echo "__EMPTY__"; else cat "$f"; fi
+    elif grep -q "s3-buckets-detail/$1-$2 " "$ERRLOG_D" 2>/dev/null && \
+         grep -B1 "s3-buckets-detail/$1-$2 " "$ERRLOG_D" 2>/dev/null | grep -qiE 'NoSuch|NotFound|does not exist'; then
+      echo "__UNSET__"
+    else
+      echo "__ERROR__"
+    fi
+  }
+  ERRLOG_D="$DATA/scan-errors.log"
+
+  {
+    echo "# S3 Bucket 設定總表"
+    echo ""
+    echo "來源：data/global/s3-buckets.json 與 data/global/s3-buckets-detail/（12 個小檔的合併）。"
+    echo "「未設定」＝AWS 回報該項組態不存在（有效證據）；「⚠️ 查詢失敗」＝其他錯誤，屬資料缺口，"
+    echo "請查 data/scan-errors.log 再下判斷，不要當成「未設定」。"
+    echo ""
+    echo "| Bucket | 公開存取封鎖 (PAB) | 預設加密 | 版本控制 | Bucket Policy 公開 | 生命週期 |"
+    echo "|---|---|---|---|---|---|"
+    for b in $(jq -r '.Buckets[].Name' "$S3LIST"); do
+      # PAB：四個旗標全 true 才算完全封鎖
+      pab_raw="$(s3state "$b" public-access-block)"
+      case "$pab_raw" in
+        __UNSET__) pab="未設定" ;;
+        __ERROR__) pab="⚠️ 查詢失敗" ;;
+        __EMPTY__) pab="未設定" ;;
+        *) if printf '%s' "$pab_raw" | jq -e '[.PublicAccessBlockConfiguration | to_entries[].value] | all' >/dev/null 2>&1; then
+             pab="全部封鎖"
+           elif printf '%s' "$pab_raw" | jq -e '[.PublicAccessBlockConfiguration | to_entries[].value] | any | not' >/dev/null 2>&1; then
+             # 四個旗標全 false ＝ 完全沒有封鎖。不可寫成「部分封鎖」——那會暗示有在擋，
+             # 讓 agent 低估風險（上一版報告的 SEC-02［高］三個 bucket 全部公開，靠的就是這項證據）。
+             pab="**完全未封鎖**（四項全 false）"
+           else
+             pab="部分封鎖：未開啟 $(printf '%s' "$pab_raw" | jq -r '[.PublicAccessBlockConfiguration | to_entries[] | select(.value|not) | .key] | join("/")')"
+           fi ;;
+      esac
+
+      enc_raw="$(s3state "$b" encryption)"
+      case "$enc_raw" in
+        __UNSET__|__EMPTY__) enc="未設定" ;;
+        __ERROR__) enc="⚠️ 查詢失敗" ;;
+        *) enc="$(printf '%s' "$enc_raw" | jq -r '[.ServerSideEncryptionConfiguration.Rules[].ApplyServerSideEncryptionByDefault.SSEAlgorithm] | join(",")' 2>/dev/null || echo '?')" ;;
+      esac
+
+      ver_raw="$(s3state "$b" versioning)"
+      case "$ver_raw" in
+        __EMPTY__|__UNSET__) ver="未啟用" ;;
+        __ERROR__) ver="⚠️ 查詢失敗" ;;
+        *) ver="$(printf '%s' "$ver_raw" | jq -r '.Status // "未啟用"' 2>/dev/null || echo '未啟用')" ;;
+      esac
+
+      pol_raw="$(s3state "$b" policy-status)"
+      case "$pol_raw" in
+        __UNSET__|__EMPTY__) pol="無 policy" ;;
+        __ERROR__) pol="⚠️ 查詢失敗" ;;
+        *) pol="$(printf '%s' "$pol_raw" | jq -r 'if .PolicyStatus.IsPublic then "**公開**" else "非公開" end' 2>/dev/null || echo '?')" ;;
+      esac
+
+      lc_raw="$(s3state "$b" lifecycle)"
+      case "$lc_raw" in
+        __UNSET__|__EMPTY__) lc="未設定" ;;
+        __ERROR__) lc="⚠️ 查詢失敗" ;;
+        *) lc="$(printf '%s' "$lc_raw" | jq -r '[.Rules[].ID] | join(",")' 2>/dev/null || echo '有')" ;;
+      esac
+
+      echo "| $b | $pab | $enc | $ver | $pol | $lc |"
+    done
+  } > "$DIGEST/s3-buckets.md"
+
+  NB="$(jq -r '.Buckets | length' "$S3LIST")"
+  # 資料列＝以 "| " 開頭、且不是表頭那一列（分隔列以 "|-" 開頭，不會被算到）
+  ND="$(grep '^| ' "$DIGEST/s3-buckets.md" | grep -vc '^| Bucket ' || true)"
+  echo "  s3-buckets.md  $(du -sk "$S3D" | cut -f1)K（12 個小檔） → $(wc -c < "$DIGEST/s3-buckets.md") 位元組"
+  MADE=$((MADE + 1))
+  if [ "$NB" -eq "$ND" ]; then
+    echo "    ✅ bucket 數一致（${NB}）"
+  else
+    echo "    ❌ 斷言失敗：bucket 數不符（原始 ${NB}、digest ${ND}）" >&2
     FAIL=$((FAIL + 1))
   fi
 fi
@@ -170,6 +268,27 @@ while IFS= read -r R; do
     assert "route-tables Routes 保留"    "[.RouteTables[] | select(has(\"Routes\"))] | length == $N" "$OUT/route-tables.json"
   fi
 done < "$DATA/active-regions.txt"
+
+# ── 跨檔關聯：把要比對好幾個檔才看得出來的網路事實算成結論 ──────────
+# （子網實際路由／命名為 private 卻通 IGW／RDS 落在公有還是私有子網）
+# 這類機械性比對不該交給 LLM 判斷——2026-07 的驗證跑就是漏了這一步，
+# 把「RDS 落在全部通 IGW 的公有子網」[高] 降級成「RDS 可公開存取」[中]。
+if python3 "$ROOT/scripts/network-facts.py"; then
+  MADE=$((MADE + 1))
+  NF="$DIGEST/network-facts.md"
+  # 斷言：三個關聯區塊都要在（少任何一段代表關聯沒算出來，等於又把判斷丟回給 LLM）
+  for sec in "子網的實際對外路由" "命名與實際組態的落差" "RDS 的實際網路落點"; do
+    if grep -q "$sec" "$NF"; then
+      echo "    ✅ 網路事實：${sec}"
+    else
+      echo "    ❌ 斷言失敗：網路事實表缺少「${sec}」區塊" >&2
+      FAIL=$((FAIL + 1))
+    fi
+  done
+else
+  echo "    ❌ network-facts.py 執行失敗" >&2
+  FAIL=$((FAIL + 1))
+fi
 
 echo ""
 if [ "$MADE" -eq 0 ]; then

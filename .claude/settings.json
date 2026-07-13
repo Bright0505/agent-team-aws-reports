@@ -17,6 +17,8 @@
       "Bash(bash scripts/scan.sh:*)",
       "Bash(./scripts/scan.sh:*)",
       "Bash(scripts/scan.sh:*)",
+      "Bash(bash scripts/digest.sh:*)",
+      "Bash(bash scripts/check-links.sh:*)",
       "Bash(node scripts/build-report.js:*)",
       "Bash(aws sts get-caller-identity:*)",
       "Bash(aws configure get:*)",

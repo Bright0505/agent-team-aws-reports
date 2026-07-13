@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# 把本期的報告與四支柱 findings 存檔到 report/archive/<期別>/
+#
+# 用法：bash scripts/archive-report.sh          （由 /report-aws 階段 ⑥ 呼叫）
+#       bash scripts/archive-report.sh 2026-06  （手動指定期別）
+#
+# 為什麼要有這支：
+#   report/ 與 findings/ 都被 .gitignore 全部忽略，且每跑一次就整份覆蓋——
+#   上一期的報告會直接消失。2026-07 驗證時要比對前後品質，只能從 Claude 的 transcript
+#   硬救回上一期內容，那不可靠也不該是常態。
+#   存檔之後才能做「跨期回歸檢查」：這一期消失或降級的發現，必須交代理由。
+#
+# archive/ 同樣含帳號資訊，一併 gitignore，不進版控、不外傳。
+
+set -u
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+PERIOD="${1:-}"
+if [ -z "$PERIOD" ]; then
+  PERIOD="$(jq -r '.period // empty' data/scan-meta.json 2>/dev/null || true)"
+fi
+if [ -z "$PERIOD" ]; then
+  echo "錯誤：無法決定期別（data/scan-meta.json 缺 period），請手動指定：bash scripts/archive-report.sh 2026-06" >&2
+  exit 1
+fi
+
+DEST="report/archive/$PERIOD"
+
+if [ ! -f "report/AWS架構報告.md" ]; then
+  echo "錯誤：找不到 report/AWS架構報告.md，沒有東西可存檔" >&2
+  exit 1
+fi
+
+mkdir -p "$DEST"
+N=0
+for f in "report/AWS架構報告.md" "report/report-data.json" "report/aws-report.html"; do
+  [ -f "$f" ] && { cp "$f" "$DEST/"; N=$((N + 1)); }
+done
+mkdir -p "$DEST/findings"
+for f in findings/*.md; do
+  [ -f "$f" ] && { cp "$f" "$DEST/findings/"; N=$((N + 1)); }
+done
+
+# 一併留下掃描中繼資料，日後才知道這份報告是掃了哪個帳號／哪些區域／什麼時候
+[ -f "data/scan-meta.json" ] && cp data/scan-meta.json "$DEST/"
+
+echo "已存檔 $N 個檔案到 $DEST/"
+ls "$DEST" | sed 's/^/  /'
