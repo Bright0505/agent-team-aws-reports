@@ -269,6 +269,65 @@ while IFS= read -r R; do
   fi
 done < "$DATA/active-regions.txt"
 
+# ── 掃描缺口表：把「空回應」與「失敗」分清楚 ────────────────────────
+# 沒有這張表時，agent 看到 0 位元組的 data/global/budgets.json 分不清是
+# 「帳號真的沒有 Budget」還是「掃描默默失敗了」，於是會自己組指令回頭問 AWS——
+# 那類指令含 $(...) 展開，必定觸發權限確認、破壞無人值守（2026-07-13 實際發生過）。
+# 給它一個權威答案，它就不需要自己去查。
+ERRLOG_S="$DATA/scan-errors.log"
+if [ -f "$ERRLOG_S" ]; then
+  {
+    echo "# 掃描缺口表"
+    echo ""
+    echo "來源：data/scan-errors.log。**這是關於「查不到的東西」的權威答案，不要自己回頭呼叫 AWS 補查。**"
+    echo ""
+    echo "## 未設定（AWS 回空回應）——這是有效證據，不是資料缺口"
+    echo ""
+    echo "呼叫成功但 AWS 回空，代表該項組態**確實不存在**。可以直接據此下發現（例：帳號沒有任何 Budget 告警）。"
+    echo ""
+    # 直接掃 data/ 找 0 位元組的檔——這是地面真相，比讀 scan-errors.log 可靠
+    # （舊版 run() 不會寫 EMPTY:，但空檔照樣存在；靠檔案本身判斷就不會漏）
+    EMPTIES="$(find "$DATA" -name '*.json' -size 0 -not -path "$DIGEST/*" 2>/dev/null | sed "s|^$DATA/||" | sort)"
+    if [ -n "$EMPTIES" ]; then
+      echo "| 項目 | 意義 |"
+      echo "|---|---|"
+      printf '%s\n' "$EMPTIES" | while IFS= read -r item; do
+        echo "| \`$item\` | 未設定（AWS 回空回應） |"
+      done
+    else
+      echo "（無）"
+    fi
+    echo ""
+    echo "## 查詢失敗——真正的資料缺口"
+    echo ""
+    echo "錯誤訊息含 \`NoSuch\` / \`NotFound\` / \`does not exist\` 者，同樣代表「該項未設定」（有效證據）；"
+    echo "其餘（權限不足、服務未啟用）才是真正查不到，寫入報告的「資料缺口」段落。"
+    echo ""
+    if grep -q '^FAILED:' "$ERRLOG_S" 2>/dev/null; then
+      echo "| 項目 | 判定 |"
+      echo "|---|---|"
+      grep '^FAILED:' "$ERRLOG_S" | sed 's/^FAILED: //' | while IFS= read -r line; do
+        item="${line%% ::*}"
+        if grep -B1 -F "FAILED: $item " "$ERRLOG_S" | grep -qiE 'NoSuch|NotFound|does not exist'; then
+          echo "| \`$item\` | 未設定（該組態不存在）——有效證據 |"
+        else
+          echo "| \`$item\` | **資料缺口**（權限不足／服務未啟用，見 scan-errors.log） |"
+        fi
+      done
+    else
+      echo "（無）"
+    fi
+  } > "$DIGEST/scan-gaps.md"
+  echo "  scan-gaps.md  $(wc -c < "$DIGEST/scan-gaps.md") 位元組（空回應 vs 資料缺口）"
+  MADE=$((MADE + 1))
+  if grep -q "未設定（AWS 回空回應）" "$DIGEST/scan-gaps.md" && grep -q "查詢失敗" "$DIGEST/scan-gaps.md"; then
+    echo "    ✅ 缺口表兩個區塊都在"
+  else
+    echo "    ❌ 斷言失敗：缺口表缺少區塊" >&2
+    FAIL=$((FAIL + 1))
+  fi
+fi
+
 # ── 跨檔關聯：把要比對好幾個檔才看得出來的網路事實算成結論 ──────────
 # （子網實際路由／命名為 private 卻通 IGW／RDS 落在公有還是私有子網）
 # 這類機械性比對不該交給 LLM 判斷——2026-07 的驗證跑就是漏了這一步，

@@ -48,12 +48,21 @@ model: sonnet
 - 每項發現的證據必須對回 `data/` 檔案，不得推測；查不到的寫入「資料缺口」
 - 效能判斷需要指標佐證時，可用唯讀 CLI 補查 CloudWatch（`cloudwatch get-metric-statistics`），例如 EC2 近 14 天 CPU 平均
 - 已符合最佳實務的項目寫入「良好實務」段落
-- 讀取本機 `data/` 檔案一律用 **Read / Glob / Grep 工具**（需一次讀多檔時用 Glob 列出路徑再逐一 Read）；
-  **絕對禁止**用 Bash 的 `for` 迴圈、`*` 萬用字元或任何含 `$變數` 展開的指令讀檔
-  （如 `for f in a b c; do cat "$f"; done`）。補查用的唯讀 AWS CLI 也要寫成單一、不含 glob/迴圈的指令。
+- **先查 `data/digest/scan-gaps.md` 再決定要不要補查 AWS**：那是「查不到的東西」的權威答案，
+  已把「AWS 回空回應＝該項未設定（有效證據）」與「查詢失敗＝資料缺口」分清楚。
+  例：`data/global/budgets.json` 是 0 位元組，代表**帳號真的沒有任何 Budget**，可直接據此下發現，
+  **不要自己組指令回頭問 AWS**。
+- 讀取本機 `data/` 檔案一律用 **Read / Glob / Grep 工具**。
+  **絕對禁止**在 Bash 裡用 `for` 迴圈、`*` 萬用字元、`$(...)` 命令替換或任何 `$變數` 展開
+  （如 `for f in a b c; do cat "$f"; done`、`aws ... --account-id "$(cat x.json | grep ...)"`）。
   **理由**：Claude Code 的 Bash 權限是字串比對，只要指令含 shell 展開就無法靜態驗證，
-  **一定會跳權限確認、破壞無人值守，而且沒有任何白名單能放行**。
-  檔案很多、覺得一個個 Read 很煩時，改讀 `data/digest/` 的合併表（例如 S3 的 12 個小檔已合併為
+  **一定會跳權限確認、破壞無人值守，而且沒有任何白名單能放行**（`cat` 早就在白名單裡也沒用）。
+- **需要帳號 ID 之類的值時，把值直接寫進指令**，不要用 `$(...)` 動態取。
+  值先用 Read 從 `data/scan-meta.json` 或 `data/inventory.md` 讀出來，再填進去：
+  ✅ `aws budgets describe-budgets --account-id 123456789012`
+  ❌ `aws budgets describe-budgets --account-id "$(jq -r .account data/scan-meta.json)"`
+  前者是單一指令、命中 allowlist、不跳提示；後者含展開，必定卡住。
+- 檔案很多、覺得一個個 Read 很煩時，改讀 `data/digest/` 的合併表（S3 的 12 個小檔已併為
   `digest/s3-buckets.md`）；digest 沒涵蓋的就老實逐一 Read——寧可多幾個 Read，也不要卡住整條流程
 - 直譯器（`python3`/`awk`/`sed` 等）僅供處理本機 `data/` 資料；嚴禁透過任何直譯器、管線或子程序間接呼叫變更 AWS 帳號狀態的指令
 - **寫完必須自我複查一輪**（不可略過）：逐條對照上面的「檢查重點」，確認每一項都真的核對過掃描資料，

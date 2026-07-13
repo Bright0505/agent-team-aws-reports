@@ -66,13 +66,23 @@ mkdir -p "$DATA"
 : > "$ERRLOG"
 
 # run <輸出檔名(不含.json)> <aws cli 參數...>
+# 三種結果要分清楚，否則 agent 讀到會誤判（並且會回頭去問 AWS，觸發權限確認）：
+#   ok    有內容
+#   empty 呼叫成功但 AWS 回空回應 → 該項「未設定」（例：帳號沒有任何 Budget、
+#         bucket 從未啟用版本控制）。這是**有效證據**，不是資料缺口。
+#   fail  呼叫失敗 → 真正的資料缺口（權限不足／服務未啟用／該組態不存在）
 run() {
   local out="$1"; shift
   local dir; dir="$(dirname "$DATA/$out")"; mkdir -p "$dir"
   if aws "$@" --output json > "$DATA/$out.json" 2>>"$ERRLOG"; then
-    echo "  ok   $out"
+    if [ -s "$DATA/$out.json" ]; then
+      echo "  ok    $out"
+    else
+      echo "  empty $out (AWS 回空回應＝該項未設定)"
+      echo "EMPTY: $out :: aws $*" >> "$ERRLOG"
+    fi
   else
-    echo "  fail $out (見 scan-errors.log)"
+    echo "  fail  $out (見 scan-errors.log)"
     echo "FAILED: $out :: aws $*" >> "$ERRLOG"
     rm -f "$DATA/$out.json"
   fi
