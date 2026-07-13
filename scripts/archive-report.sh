@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# 把本期的報告與四支柱 findings 存檔到 report/archive/<期別>/
+# 把本期的報告與四支柱 findings 存檔到 archive/<期別>/
 #
 # 用法：bash scripts/archive-report.sh          （由 /report-aws 階段 ⑥ 呼叫）
 #       bash scripts/archive-report.sh 2026-06  （手動指定期別）
+#
+# 存檔放在頂層 archive/，**不要放在 report/ 底下**——
+#   report/ 是每跑一次就被清空／覆蓋的目錄，把歷史存檔放進去等於「清報告時順手毀掉歷史」，
+#   2026-07-13 就實際發生過一次。
 #
 # 為什麼要有這支：
 #   report/ 與 findings/ 都被 .gitignore 全部忽略，且每跑一次就整份覆蓋——
@@ -25,7 +29,7 @@ if [ -z "$PERIOD" ]; then
   exit 1
 fi
 
-DEST="report/archive/$PERIOD"
+DEST="archive/$PERIOD"
 
 if [ ! -f "report/AWS架構報告.md" ]; then
   echo "錯誤：找不到 report/AWS架構報告.md，沒有東西可存檔" >&2

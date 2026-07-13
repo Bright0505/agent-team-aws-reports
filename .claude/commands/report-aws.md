@@ -93,7 +93,7 @@ bash scripts/check-links.sh report/AWS架構報告.md findings/security.md findi
 bash scripts/archive-report.sh
 ```
 
-存到 `report/archive/<期別>/`。**這步不可略過**：`report/` 與 `findings/` 都被 gitignore 且每跑一次
+存到 `archive/<期別>/`。**這步不可略過**：`report/` 與 `findings/` 都被 gitignore 且每跑一次
 整份覆蓋，不存檔的話上一期報告就永久消失，日後無法做跨期回歸檢查（比對這期是否有發現無聲消失或被降級）。
 
 ## 收尾（唯一的回報時機）
