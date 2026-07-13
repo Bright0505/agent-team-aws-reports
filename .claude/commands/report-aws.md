@@ -70,14 +70,28 @@ report-writer 沒有 Bash，這步由你跑：
 node scripts/build-report.js
 ```
 
-- 成功 → 產出 `report/aws-report.html`，進入收尾。
+- 成功 → 產出 `report/aws-report.html`，進入階段 ⑤。
 - 若因 `report-data.json` 不合 schema 而 `exit 1`：讀取錯誤訊息，回頭請 `report-writer`
   只修正該欄位後**重跑一次** `build-report.js`（**最多重試一次**）。仍失敗才停止並回報錯誤細節。
+
+## 階段 ⑤ — 連結檢查（由你＝主對話執行）
+
+報告交付前確認引用的官方文件連結沒有失效（不經過 LLM，不碰 AWS 帳號）：
+
+```
+bash scripts/check-links.sh report/AWS架構報告.md findings/security.md findings/reliability.md findings/performance.md findings/cost.md
+```
+
+- 全數有效 → 進入收尾。
+- 有失效連結（exit 1）→ **不要中止流程**。把失效清單記下來，在收尾摘要中列出，
+  並提醒需更新 `references/aws-docs.md`。
+  （`docs.aws.amazon.com` 失效頁面仍回 HTTP 200，只能靠這支腳本判斷，WebFetch 看不出來。）
 
 ## 收尾（唯一的回報時機）
 
 輸出一則摘要：
 - 期別、掃描帳號與區域、掃描日期
 - 四支柱各自分數與各嚴重度（高／中／低）發現數；若有缺漏支柱明確標註
+- 連結檢查結果（全數有效／或列出失效連結與待更新的 `references/aws-docs.md` 段落）
 - 產出檔路徑：`report/aws-report.html`、`report/AWS架構報告.md`、`report/report-data.json`
 - 提醒：如需對外分享版，可再要求 `node scripts/build-report.js --masked`（遮罩防呆）或發佈 Artifact

@@ -11,9 +11,11 @@ model: sonnet
 
 1. 先讀 `data/inventory.md`、`data/global/cost-by-service.json`（近三個月各服務花費）掌握成本結構，再深入其他 `data/` JSON
 2. 依 `templates/finding-format.md` 的格式，輸出 `findings/cost.md`
-3. 建議引用官方文件時，用 WebFetch 確認連結有效；優先引用：
-   - Cost Optimization Pillar 白皮書：https://docs.aws.amazon.com/wellarchitected/latest/cost-optimization-pillar/welcome.html
-   - AWS 定價頁面、Cost Management 文件
+3. 建議引用官方文件時，**從 `references/aws-docs.md` 的「成本最佳化（COST）」段落取用**（該檔連結已驗證有效）。
+   **不要為了確認連結有效而 WebFetch**——`docs.aws.amazon.com` 是 SPA，失效頁面仍回 HTTP 200 且只回空殼，
+   目視判斷不可靠；連結有效性一律由 `bash scripts/check-links.sh` 確定性檢查。
+   例外：**金額估算需要當下單價時，仍應 WebFetch 定價頁**（價格會變動，不可沿用舊值）；
+   該檔未涵蓋的主題亦然，查完後把新連結補進 `references/aws-docs.md` 對應段落。
 
 ## 檢查重點（依掃描資料逐項核對）
 
