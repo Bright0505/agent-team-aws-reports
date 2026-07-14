@@ -174,6 +174,20 @@ scan_region() {
   run "$P/asg"               autoscaling describe-auto-scaling-groups "${A[@]}"
   run "$P/lambda-functions"  lambda list-functions "${A[@]}"
   run "$P/ecs-clusters"      ecs list-clusters "${A[@]}"
+  # ECS service 明細（desiredCount／runningCount／networkConfiguration／deployments）——
+  # 只抓 cluster ARN 會讓分析 agent 誤判「無運行中資源」，或被迫自己 live 查 AWS
+  # （2026-07 兩次執行 performance/reliability 都因此各補查了 4-6 次）
+  mkdir -p "$DATA/$P/ecs-detail"
+  for c in $(jq -r '.clusterArns[]?' "$DATA/$P/ecs-clusters.json" 2>/dev/null); do
+    cname="$(basename "$c")"
+    run "$P/ecs-detail/$cname-services" ecs list-services --cluster "$c" "${A[@]}"
+    # describe-services 一次上限 10 個；超過 10 個 service 的 cluster 需分批（目前帳號規模用不到）
+    svcs="$(jq -r '.serviceArns[]?' "$DATA/$P/ecs-detail/$cname-services.json" 2>/dev/null | head -10 | tr '\n' ' ')"
+    if [ -n "$svcs" ]; then
+      # shellcheck disable=SC2086  # $svcs 刻意不加引號：多個 ARN 要以空白分開傳入
+      run "$P/ecs-detail/$cname-services-detail" ecs describe-services --cluster "$c" --services $svcs "${A[@]}"
+    fi
+  done
   run "$P/eks-clusters"      eks list-clusters "${A[@]}"
 
   # 儲存

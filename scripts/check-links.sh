@@ -56,7 +56,7 @@ done <<< "$URLS"
 
 echo ""
 if [ "$FAILED" -gt 0 ]; then
-  echo "=== 有 $FAILED / $TOTAL 個連結失效，請更新 references/aws-docs.md ==="
+  echo "=== 有 $FAILED / $TOTAL 個連結失效，請更新 references/ 下對應支柱的目錄檔 ==="
   exit 1
 fi
 echo "=== $TOTAL 個連結全數有效 ==="
