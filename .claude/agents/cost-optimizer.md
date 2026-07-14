@@ -53,7 +53,9 @@ model: sonnet
 
 - 每項發現的證據必須對回 `data/` 檔案；金額估算需標明依據（如「未掛載 gp3 100GB × $0.08/GB-月」），查不到定價就寫範圍或標註需確認
 - 已符合最佳實務的項目寫入「良好實務」段落
-- 需要補查時只能用唯讀 AWS CLI（describe/list/get，含 `ce` 與 `cloudwatch get-metric-statistics`）
+- 需要補查時只能用唯讀 AWS CLI（describe/list/get，含 `ce` 與 `cloudwatch get-metric-statistics`）。
+  **帶時間窗一律填 `data/scan-meta.json` 的字面時間戳**（`ce` 用 `cost_window` 的 `start`／`end`，
+  CloudWatch 用 `metrics_window`）：先用 Read 讀出後直接填入指令——這也是下一條「字面量」規則的實例
 - **先查 `data/digest/scan-gaps.md` 再決定要不要補查 AWS**：那是「查不到的東西」的權威答案，
   已把「AWS 回空回應＝該項未設定（有效證據）」與「查詢失敗＝資料缺口」分清楚。
   例：`data/global/budgets.json` 是 0 位元組，代表**帳號真的沒有任何 Budget**，可直接據此下發現，

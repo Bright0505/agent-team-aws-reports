@@ -46,7 +46,7 @@ model: sonnet
 ## 規則
 
 - 每項發現的證據必須對回 `data/` 檔案，不得推測；查不到的寫入「資料缺口」
-- 效能判斷需要指標佐證時，可用唯讀 CLI 補查 CloudWatch（`cloudwatch get-metric-statistics`），例如 EC2 近 14 天 CPU 平均
+- 效能判斷需要指標佐證時，可用唯讀 CLI 補查 CloudWatch（`cloudwatch get-metric-statistics`），例如 RDS/EC2 近 14 天 CPU 平均。**時間窗一律填 `data/scan-meta.json` 的 `metrics_window`（近 14 天）字面時間戳**：先用 Read 讀出 `metrics_window.start`／`metrics_window.end`，直接填進 `--start-time`／`--end-time`；**嚴禁在 aws 指令內用 `$(date …)` 命令替換**——它無法靜態分析、會觸發權限確認、破壞無人值守
 - 已符合最佳實務的項目寫入「良好實務」段落
 - **先查 `data/digest/scan-gaps.md` 再決定要不要補查 AWS**：那是「查不到的東西」的權威答案，
   已把「AWS 回空回應＝該項未設定（有效證據）」與「查詢失敗＝資料缺口」分清楚。
