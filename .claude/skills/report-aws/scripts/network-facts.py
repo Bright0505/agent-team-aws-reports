@@ -20,8 +20,8 @@ import json
 import os
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA = os.path.join(ROOT, "data")
+# 輸出資料跟著 cwd 走（由 digest.sh 從專案根目錄呼叫），腳本本身住在 skill 目錄
+DATA = os.path.join(os.getcwd(), "data")
 DIGEST = os.path.join(DATA, "digest")
 
 

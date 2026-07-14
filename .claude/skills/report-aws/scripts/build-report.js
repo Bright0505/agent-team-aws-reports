@@ -4,13 +4,13 @@
  * 不經過任何 LLM；同樣輸入必得同樣輸出。
  *
  * 用法：
- *   node scripts/build-report.js
- *   node scripts/build-report.js --data report/report-data.json \
+ *   node .claude/skills/report-aws/scripts/build-report.js
+ *   node .claude/skills/report-aws/scripts/build-report.js --data report/report-data.json \
  *     --template templates/report.html.template \
  *     --theme templates/themes/default.css \
  *     --out report/aws-report.html
- *   node scripts/build-report.js --standalone   # 包成完整 HTML 供本機直接開啟
- *   node scripts/build-report.js --masked       # 對外分享版：做遮罩防呆檢查
+ *   node .claude/skills/report-aws/scripts/build-report.js --standalone   # 包成完整 HTML 供本機直接開啟
+ *   node .claude/skills/report-aws/scripts/build-report.js --masked       # 對外分享版：做遮罩防呆檢查
  *
  * 預設為正式上線版，不遮罩、不檢查。--masked 供使用者要求對外分享版時使用：
  * 發現 12 位數帳號 ID 或 AKIA 金鑰樣式即失敗退出。
@@ -20,7 +20,9 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.resolve(__dirname, '..');
+// 兩種根分離：模板/主題跟著 skill 目錄（本檔上一層），資料/輸出跟著執行時的 cwd（專案根目錄）
+const SKILL_ROOT = path.resolve(__dirname, '..');
+const WORK_ROOT = process.cwd();
 
 // ---------- 參數 ----------
 function parseArgs(argv) {
@@ -39,8 +41,11 @@ function parseArgs(argv) {
     else if (a.startsWith('--') && a.slice(2) in opts) opts[a.slice(2)] = argv[++i];
     else fail(`未知參數：${a}`);
   }
-  for (const k of ['data', 'template', 'theme', 'out']) {
-    opts[k] = path.isAbsolute(opts[k]) ? opts[k] : path.join(ROOT, opts[k]);
+  for (const k of ['template', 'theme']) {
+    opts[k] = path.isAbsolute(opts[k]) ? opts[k] : path.join(SKILL_ROOT, opts[k]);
+  }
+  for (const k of ['data', 'out']) {
+    opts[k] = path.isAbsolute(opts[k]) ? opts[k] : path.join(WORK_ROOT, opts[k]);
   }
   return opts;
 }
@@ -344,7 +349,7 @@ function main() {
 
   fs.mkdirSync(path.dirname(opts.out), { recursive: true });
   fs.writeFileSync(opts.out, html);
-  console.log(`已產生：${path.relative(ROOT, opts.out)}（${html.length.toLocaleString('en-US')} bytes${opts.standalone ? '，standalone' : '，Artifact 片段'}${opts.masked ? '，已通過遮罩檢查' : ''}）`);
+  console.log(`已產生：${path.relative(WORK_ROOT, opts.out)}（${html.length.toLocaleString('en-US')} bytes${opts.standalone ? '，standalone' : '，Artifact 片段'}${opts.masked ? '，已通過遮罩檢查' : ''}）`);
 }
 
 main();

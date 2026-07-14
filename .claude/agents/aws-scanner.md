@@ -10,8 +10,8 @@ model: haiku
 ## 工作流程
 
 1. 先驗證憑證：`aws sts get-caller-identity`。失敗就立即停止並回報，不要嘗試修復憑證。
-2. 掃描：用 `bash scripts/scan.sh default <期別>` 執行（期別由派工訊息當第二個位置參數傳入；
-   未提供則 `bash scripts/scan.sh`，預設上一個完整月）。相對路徑形式跨機器與改專案名都成立。
+2. 掃描：用 `bash .claude/skills/report-aws/scripts/scan.sh default <期別>` 執行（期別由派工訊息當第二個位置參數傳入；
+   未提供則 `bash .claude/skills/report-aws/scripts/scan.sh`，預設上一個完整月）。相對路徑形式跨機器與改專案名都成立。
    腳本已內建容錯，逐項結果分三種：`ok`（有內容）、`empty`（AWS 回空回應＝該項未設定，
    **是有效證據不是失敗**）、`fail`（記錄到 `data/scan-errors.log` 續跑）。
    腳本末尾會自動跑 `digest.sh` 產出 `data/digest/`（含證據欄位斷言，斷言失敗即整體非零退出）。

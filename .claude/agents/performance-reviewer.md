@@ -11,16 +11,16 @@ model: sonnet
 
 1. 先讀 `data/inventory.md` 與 `data/scan-meta.json` 掌握全貌，再深入相關 JSON。
    **`data/digest/` 有的檔案一律讀 digest，不要讀 `data/` 的原始版**——digest 是原始檔的確定性投影
-   （`scripts/digest.sh` 以 jq 產生，保留全部證據欄位並通過欄位斷言），**可直接引用為證據**。
+   （`.claude/skills/report-aws/scripts/digest.sh` 以 jq 產生，保留全部證據欄位並通過欄位斷言），**可直接引用為證據**。
    本支柱會用到的 digest：`digest/network-facts.md`（子網實際路由與資源落點）、
    `digest/cloudfront-distributions.json`、`digest/regions/<區域>/subnets.json`。
    其餘檔案（load-balancers、target-groups、rds-instances 等）讀 `data/` 原始檔。
    若需要 digest 未涵蓋的欄位，回頭讀 `data/` 原始檔（原始資料永遠完整保留）。
-2. 依 `templates/finding-format.md` 的格式，輸出 `findings/performance.md`
-3. 建議引用官方文件時，**從 `references/aws-docs-perf.md` 的「效能效率（PERF）」段落取用**（該檔連結已驗證有效）。
+2. 依 `.claude/skills/report-aws/templates/finding-format.md` 的格式，輸出 `findings/performance.md`
+3. 建議引用官方文件時，**從 `.claude/skills/report-aws/references/aws-docs-perf.md` 的「效能效率（PERF）」段落取用**（該檔連結已驗證有效）。
    **不要為了確認連結有效而 WebFetch**——`docs.aws.amazon.com` 是 SPA，失效頁面仍回 HTTP 200 且只回空殼，
-   目視判斷不可靠；連結有效性一律由 `bash scripts/check-links.sh` 確定性檢查。
-   只有該檔未涵蓋的主題才用 WebFetch；查完後把新連結補進 `references/aws-docs-perf.md` 對應段落，供後續月份重複使用。
+   目視判斷不可靠；連結有效性一律由 `bash .claude/skills/report-aws/scripts/check-links.sh` 確定性檢查。
+   只有該檔未涵蓋的主題才用 WebFetch；查完後把新連結補進 `.claude/skills/report-aws/references/aws-docs-perf.md` 對應段落，供後續月份重複使用。
 
 ## 檢查重點（依掃描資料逐項核對）
 

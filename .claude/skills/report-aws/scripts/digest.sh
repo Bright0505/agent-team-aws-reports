@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 掃描資料精簡（本機 jq，確定性；不呼叫 AWS、不需要憑證）
 #
-# 用法：bash scripts/digest.sh          （scan.sh 末尾自動呼叫；也可單獨重跑）
+# 用法（從專案根目錄）：bash .claude/skills/report-aws/scripts/digest.sh （scan.sh 末尾自動呼叫；也可單獨重跑）
 #
 # 為什麼不在 scan.sh 用 --query 裁切：
 #   --query 是「擷取時破壞、不可逆」——欄位判斷錯了只能重掃帳號，但重掃時帳號狀態已變，
@@ -20,8 +20,13 @@
 #    新增檢查重點而需要新欄位時，補進投影並在此加斷言。
 
 set -u
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DATA="$ROOT/data"
+SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+WORK_ROOT="$PWD"
+if [ ! -f "$WORK_ROOT/CLAUDE.md" ]; then
+  echo "錯誤：請從專案根目錄執行：bash .claude/skills/report-aws/scripts/digest.sh" >&2
+  exit 1
+fi
+DATA="$WORK_ROOT/data"
 DIGEST="$DATA/digest"
 
 # 沒有掃描資料就直接失敗——若放任 if [ -f ] 守衛逐一跳過，腳本會什麼都沒做卻回報成功，
@@ -332,7 +337,7 @@ fi
 # （子網實際路由／命名為 private 卻通 IGW／RDS 落在公有還是私有子網）
 # 這類機械性比對不該交給 LLM 判斷——2026-07 的驗證跑就是漏了這一步，
 # 把「RDS 落在全部通 IGW 的公有子網」[高] 降級成「RDS 可公開存取」[中]。
-if python3 "$ROOT/scripts/network-facts.py"; then
+if python3 "$SKILL_DIR/scripts/network-facts.py"; then
   MADE=$((MADE + 1))
   NF="$DIGEST/network-facts.md"
   # 斷言：三個關聯區塊都要在（少任何一段代表關聯沒算出來，等於又把判斷丟回給 LLM）
