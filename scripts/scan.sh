@@ -66,13 +66,23 @@ mkdir -p "$DATA"
 : > "$ERRLOG"
 
 # run <輸出檔名(不含.json)> <aws cli 參數...>
+# 三種結果要分清楚，否則 agent 讀到會誤判（並且會回頭去問 AWS，觸發權限確認）：
+#   ok    有內容
+#   empty 呼叫成功但 AWS 回空回應 → 該項「未設定」（例：帳號沒有任何 Budget、
+#         bucket 從未啟用版本控制）。這是**有效證據**，不是資料缺口。
+#   fail  呼叫失敗 → 真正的資料缺口（權限不足／服務未啟用／該組態不存在）
 run() {
   local out="$1"; shift
   local dir; dir="$(dirname "$DATA/$out")"; mkdir -p "$dir"
   if aws "$@" --output json > "$DATA/$out.json" 2>>"$ERRLOG"; then
-    echo "  ok   $out"
+    if [ -s "$DATA/$out.json" ]; then
+      echo "  ok    $out"
+    else
+      echo "  empty $out (AWS 回空回應＝該項未設定)"
+      echo "EMPTY: $out :: aws $*" >> "$ERRLOG"
+    fi
   else
-    echo "  fail $out (見 scan-errors.log)"
+    echo "  fail  $out (見 scan-errors.log)"
     echo "FAILED: $out :: aws $*" >> "$ERRLOG"
     rm -f "$DATA/$out.json"
   fi
@@ -164,6 +174,20 @@ scan_region() {
   run "$P/asg"               autoscaling describe-auto-scaling-groups "${A[@]}"
   run "$P/lambda-functions"  lambda list-functions "${A[@]}"
   run "$P/ecs-clusters"      ecs list-clusters "${A[@]}"
+  # ECS service 明細（desiredCount／runningCount／networkConfiguration／deployments）——
+  # 只抓 cluster ARN 會讓分析 agent 誤判「無運行中資源」，或被迫自己 live 查 AWS
+  # （2026-07 兩次執行 performance/reliability 都因此各補查了 4-6 次）
+  mkdir -p "$DATA/$P/ecs-detail"
+  for c in $(jq -r '.clusterArns[]?' "$DATA/$P/ecs-clusters.json" 2>/dev/null); do
+    cname="$(basename "$c")"
+    run "$P/ecs-detail/$cname-services" ecs list-services --cluster "$c" "${A[@]}"
+    # describe-services 一次上限 10 個；超過 10 個 service 的 cluster 需分批（目前帳號規模用不到）
+    svcs="$(jq -r '.serviceArns[]?' "$DATA/$P/ecs-detail/$cname-services.json" 2>/dev/null | head -10 | tr '\n' ' ')"
+    if [ -n "$svcs" ]; then
+      # shellcheck disable=SC2086  # $svcs 刻意不加引號：多個 ARN 要以空白分開傳入
+      run "$P/ecs-detail/$cname-services-detail" ecs describe-services --cluster "$c" --services $svcs "${A[@]}"
+    fi
+  done
   run "$P/eks-clusters"      eks list-clusters "${A[@]}"
 
   # 儲存
@@ -366,3 +390,8 @@ echo "=== 掃描完成 ==="
 echo "資料位置: $DATA"
 FAILS="$(grep -c '^FAILED' "$ERRLOG" 2>/dev/null || true)"
 echo "失敗項目: ${FAILS}（詳見 data/scan-errors.log，多為服務未啟用或權限不足，屬預期）"
+
+# 精簡樣板欄位多的掃描資料到 data/digest/（純本機 jq，不呼叫 AWS）。
+# 原始 JSON 保持完整不動，digest 只是它的確定性投影。
+echo ""
+bash "$ROOT/scripts/digest.sh"

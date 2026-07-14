@@ -39,9 +39,13 @@ argument-hint: "[期別，如 2026-07 或 2026-Q3；留空用當月]"
 
 派 `aws-scanner`（同步執行、等它完成）跑 `bash scripts/scan.sh default <期別>` 掃描帳號
 （期別當第二個位置參數傳入以決定成本趨勢窗；留空則 `bash scripts/scan.sh`，預設上一個完整月）。
-此相對路徑形式命中 allowlist、不跳提示，且跨機器與改專案名都成立。
-完成後確認 `data/inventory.md` 與 `data/scan-meta.json` 都存在；
+profile `default` 應設定為**唯讀憑證**（IAM 掛 `ReadOnlyAccess`）——唯讀鐵則的強制層在 IAM；
+若唯讀金鑰放在其他 profile，第一個參數改用該名稱。
+相對路徑形式跨機器與改專案名都成立。
+完成後確認 `data/inventory.md`、`data/scan-meta.json` 與 **`data/digest/network-facts.md`** 都存在；
 若缺任一，停止並回報掃描失敗原因（讀 `data/scan-errors.log` 說明）。
+network-facts 是安全性／可靠性分析的必要輸入（RDS 網路落點、private 命名落差等
+跨檔關聯事實），缺了它 LLM 就得自己做交叉比對——那正是上次漏掉 [高] 發現的原因。
 
 ## 階段 ② — 四支柱並行分析（背景並行）
 
@@ -70,14 +74,37 @@ report-writer 沒有 Bash，這步由你跑：
 node scripts/build-report.js
 ```
 
-- 成功 → 產出 `report/aws-report.html`，進入收尾。
+- 成功 → 產出 `report/aws-report.html`，進入階段 ⑤。
 - 若因 `report-data.json` 不合 schema 而 `exit 1`：讀取錯誤訊息，回頭請 `report-writer`
   只修正該欄位後**重跑一次** `build-report.js`（**最多重試一次**）。仍失敗才停止並回報錯誤細節。
+
+## 階段 ⑤ — 連結檢查（由你＝主對話執行）
+
+報告交付前確認引用的官方文件連結沒有失效（不經過 LLM，不碰 AWS 帳號）：
+
+```
+bash scripts/check-links.sh report/AWS架構報告.md findings/security.md findings/reliability.md findings/performance.md findings/cost.md
+```
+
+- 全數有效 → 進入階段 ⑥。
+- 有失效連結（exit 1）→ **不要中止流程**。把失效清單記下來，在收尾摘要中列出，
+  並提醒需更新 `references/` 下對應支柱的目錄檔。
+  （`docs.aws.amazon.com` 失效頁面仍回 HTTP 200，只能靠這支腳本判斷，WebFetch 看不出來。）
+
+## 階段 ⑥ — 存檔本期報告（由你＝主對話執行）
+
+```
+bash scripts/archive-report.sh
+```
+
+存到 `archive/<期別>/`。**這步不可略過**：`report/` 與 `findings/` 都被 gitignore 且每跑一次
+整份覆蓋，不存檔的話上一期報告就永久消失，日後無法做跨期回歸檢查（比對這期是否有發現無聲消失或被降級）。
 
 ## 收尾（唯一的回報時機）
 
 輸出一則摘要：
 - 期別、掃描帳號與區域、掃描日期
 - 四支柱各自分數與各嚴重度（高／中／低）發現數；若有缺漏支柱明確標註
+- 連結檢查結果（全數有效／或列出失效連結與待更新的 `references/aws-docs-<支柱>.md`）
 - 產出檔路徑：`report/aws-report.html`、`report/AWS架構報告.md`、`report/report-data.json`
 - 提醒：如需對外分享版，可再要求 `node scripts/build-report.js --masked`（遮罩防呆）或發佈 Artifact
