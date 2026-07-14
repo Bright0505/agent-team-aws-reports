@@ -2,8 +2,9 @@
 # AWS 官方文件連結有效性檢查（確定性，不經過 LLM）
 # 只對 AWS 文件站發 HTTP GET，不碰 AWS 帳號、不需要憑證。
 #
-# 用法：bash scripts/check-links.sh [檔案...]
-#   預設檢查 references/aws-docs.md；也可指定 findings/*.md report/*.md 檢查報告內的連結。
+# 用法：bash scripts/check-links.sh [檔案或目錄...]
+#   預設檢查整個 references/ 目錄（依支柱拆分的 aws-docs-*.md）；
+#   也可指定 findings/*.md report/*.md 檢查報告內的連結。
 #   有失效連結時 exit 1，全數有效 exit 0。
 #
 # 判別方式：AWS 兩個站的 404 特徵不同，兩種都要檢查——
@@ -18,7 +19,7 @@ cd "$ROOT"
 MIN_BYTES=3000   # 小於此值視為 docs 站的 404 空殼
 
 FILES=("$@")
-[ ${#FILES[@]} -eq 0 ] && FILES=("references/aws-docs.md")
+[ ${#FILES[@]} -eq 0 ] && FILES=("references")
 
 # 抽出所有 AWS 官方連結（去重）
 URLS="$(grep -rhoE 'https://[a-z0-9.-]*aws[a-z0-9.-]*\.(com|amazon\.com)/[^ )">]*' "${FILES[@]}" 2>/dev/null \

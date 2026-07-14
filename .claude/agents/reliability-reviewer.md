@@ -16,14 +16,16 @@ model: opus
    RDS／資源的網路落點——確定性算出的結論，**必讀**）、
    **`digest/s3-buckets.md`**（S3 設定總表，含版本控制狀態；
    已合併 `s3-buckets-detail/` 的 12 個小檔，**不要逐一去讀那些小檔**）、
+   `digest/cloudfront-distributions.json`（origin failover／單一 origin 判斷用；
+   **讀 digest，不要讀 55K 的原始檔**——2026-07 的驗證跑就誤讀了原始檔，多花 4 倍 context）、
    `digest/regions/<區域>/subnets.json`、`digest/regions/<區域>/route-tables.json`。
    其餘檔案（load-balancers、target-groups、rds-*、asg、log-groups 等）讀 `data/` 原始檔。
    若需要 digest 未涵蓋的欄位，回頭讀 `data/` 原始檔（原始資料永遠完整保留）。
 2. 依 `templates/finding-format.md` 的格式，輸出 `findings/reliability.md`
-3. 建議引用官方文件時，**從 `references/aws-docs.md` 的「可靠性（REL）」段落取用**（該檔連結已驗證有效）。
+3. 建議引用官方文件時，**從 `references/aws-docs-rel.md` 的「可靠性（REL）」段落取用**（該檔連結已驗證有效）。
    **不要為了確認連結有效而 WebFetch**——`docs.aws.amazon.com` 是 SPA，失效頁面仍回 HTTP 200 且只回空殼，
    目視判斷不可靠；連結有效性一律由 `bash scripts/check-links.sh` 確定性檢查。
-   只有該檔未涵蓋的主題才用 WebFetch；查完後把新連結補進 `references/aws-docs.md` 對應段落，供後續月份重複使用。
+   只有該檔未涵蓋的主題才用 WebFetch；查完後把新連結補進 `references/aws-docs-rel.md` 對應段落，供後續月份重複使用。
 
 ## 檢查重點（依掃描資料逐項核對）
 
@@ -59,18 +61,17 @@ model: opus
   已把「AWS 回空回應＝該項未設定（有效證據）」與「查詢失敗＝資料缺口」分清楚。
   例：`data/global/budgets.json` 是 0 位元組，代表**帳號真的沒有任何 Budget**，可直接據此下發現，
   **不要自己組指令回頭問 AWS**。
-- 讀取本機 `data/` 檔案一律用 **Read / Glob / Grep 工具**。
-  **絕對禁止**在 Bash 裡用 `for` 迴圈、`*` 萬用字元、`$(...)` 命令替換或任何 `$變數` 展開
-  （如 `for f in a b c; do cat "$f"; done`、`aws ... --account-id "$(cat x.json | grep ...)"`）。
-  **理由**：Claude Code 的 Bash 權限是字串比對，只要指令含 shell 展開就無法靜態驗證，
-  **一定會跳權限確認、破壞無人值守，而且沒有任何白名單能放行**（`cat` 早就在白名單裡也沒用）。
-- **需要帳號 ID 之類的值時，把值直接寫進指令**，不要用 `$(...)` 動態取。
-  值先用 Read 從 `data/scan-meta.json` 或 `data/inventory.md` 讀出來，再填進去：
+- **只把需要的欄位拉進 context**：大檔（`rds-instances` 有 57 欄、`load-balancers`、`target-groups`、
+  `security-groups` 等）只需少數欄位時，**用 jq 過濾單一明確檔名**，例如
+  `jq '{id: .DBInstances[0].DBInstanceIdentifier, pub: .DBInstances[0].PubliclyAccessible}' data/regions/us-east-1/rds-instances.json`
+  ——回傳只有幾行；Read 整檔則一次拉數千字元進 context，四個支柱平行時同一個檔還會被重複計費。
+  需要通篇檢視或引用大段原文時才用 Read；多個小檔優先讀 `data/digest/` 的合併表（如 `digest/s3-buckets.md`）。
+- **所有 `aws` 指令必須是字面量**：不得含 `$變數`、`$(...)`、迴圈或萬用字元。
+  這是唯讀鐵則的模型層防線——deny 清單靠字串比對，展開會讓它失明。
+  需要帳號 ID 之類的值時，先從 `data/scan-meta.json` 讀出來、把值直接寫進指令：
   ✅ `aws budgets describe-budgets --account-id 123456789012`
   ❌ `aws budgets describe-budgets --account-id "$(jq -r .account data/scan-meta.json)"`
-  前者是單一指令、命中 allowlist、不跳提示；後者含展開，必定卡住。
-- 檔案很多、覺得一個個 Read 很煩時，改讀 `data/digest/` 的合併表（S3 的 12 個小檔已併為
-  `digest/s3-buckets.md`）；digest 沒涵蓋的就老實逐一 Read——寧可多幾個 Read，也不要卡住整條流程
+  （本機資料處理的 jq/python3 不受此限，但仍嚴禁透過任何直譯器、管線或子程序間接呼叫變更 AWS 的指令。）
 - 直譯器（`python3`/`awk`/`sed` 等）僅供處理本機 `data/` 資料；嚴禁透過任何直譯器、管線或子程序間接呼叫變更 AWS 帳號狀態的指令
 - **寫完必須自我複查一輪**（不可略過）：逐條對照上面的「檢查重點」，確認每一項都真的核對過掃描資料，
   特別是**跨檔交叉比對**（例：RDS 的 DB subnet group × subnets × route-tables → 資料庫到底落在

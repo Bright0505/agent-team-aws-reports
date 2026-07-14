@@ -39,6 +39,8 @@ argument-hint: "[期別，如 2026-07 或 2026-Q3；留空用當月]"
 
 派 `aws-scanner`（同步執行、等它完成）跑 `bash scripts/scan.sh default <期別>` 掃描帳號
 （期別當第二個位置參數傳入以決定成本趨勢窗；留空則 `bash scripts/scan.sh`，預設上一個完整月）。
+profile `default` 應設定為**唯讀憑證**（IAM 掛 `ReadOnlyAccess`）——唯讀鐵則的強制層在 IAM；
+若唯讀金鑰放在其他 profile，第一個參數改用該名稱。
 此相對路徑形式命中 allowlist、不跳提示，且跨機器與改專案名都成立。
 完成後確認 `data/inventory.md` 與 `data/scan-meta.json` 都存在；
 若缺任一，停止並回報掃描失敗原因（讀 `data/scan-errors.log` 說明）。
@@ -84,7 +86,7 @@ bash scripts/check-links.sh report/AWS架構報告.md findings/security.md findi
 
 - 全數有效 → 進入階段 ⑥。
 - 有失效連結（exit 1）→ **不要中止流程**。把失效清單記下來，在收尾摘要中列出，
-  並提醒需更新 `references/aws-docs.md`。
+  並提醒需更新 `references/` 下對應支柱的目錄檔。
   （`docs.aws.amazon.com` 失效頁面仍回 HTTP 200，只能靠這支腳本判斷，WebFetch 看不出來。）
 
 ## 階段 ⑥ — 存檔本期報告（由你＝主對話執行）
@@ -101,6 +103,6 @@ bash scripts/archive-report.sh
 輸出一則摘要：
 - 期別、掃描帳號與區域、掃描日期
 - 四支柱各自分數與各嚴重度（高／中／低）發現數；若有缺漏支柱明確標註
-- 連結檢查結果（全數有效／或列出失效連結與待更新的 `references/aws-docs.md` 段落）
+- 連結檢查結果（全數有效／或列出失效連結與待更新的 `references/aws-docs-<支柱>.md`）
 - 產出檔路徑：`report/aws-report.html`、`report/AWS架構報告.md`、`report/report-data.json`
 - 提醒：如需對外分享版，可再要求 `node scripts/build-report.js --masked`（遮罩防呆）或發佈 Artifact
