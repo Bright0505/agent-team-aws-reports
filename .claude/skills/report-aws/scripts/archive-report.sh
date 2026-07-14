@@ -18,8 +18,8 @@
 
 set -u
 WORK_ROOT="$PWD"
-if [ ! -f "$WORK_ROOT/CLAUDE.md" ]; then
-  echo "錯誤：請從專案根目錄執行：bash .claude/skills/report-aws/scripts/archive-report.sh" >&2
+if [ ! -d "$WORK_ROOT/.claude/skills/report-aws" ]; then
+  echo "錯誤：請從裝有本 skill 的專案根目錄執行（cwd 下找不到 .claude/skills/report-aws）" >&2
   exit 1
 fi
 

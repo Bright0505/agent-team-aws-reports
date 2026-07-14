@@ -82,7 +82,25 @@
       "Bash(aws s3 rm:*)",
       "Bash(aws s3 mv:*)",
       "Bash(aws s3 cp:*)",
-      "Bash(aws s3 sync:*)"
+      "Bash(aws s3 sync:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(nc:*)",
+      "Bash(scp:*)",
+      "Bash(rsync:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/skills/report-aws/scripts/hook-aws-literal-guard.sh"
+          }
+        ]
+      }
     ]
   }
 }

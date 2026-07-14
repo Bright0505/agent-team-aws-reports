@@ -38,7 +38,11 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === '--standalone') opts.standalone = true;
     else if (a === '--masked') opts.masked = true;
-    else if (a.startsWith('--') && a.slice(2) in opts) opts[a.slice(2)] = argv[++i];
+    else if (a.startsWith('--') && a.slice(2) in opts) {
+      const v = argv[++i];
+      if (v === undefined) fail(`${a} 缺少值`);
+      opts[a.slice(2)] = v;
+    }
     else fail(`未知參數：${a}`);
   }
   for (const k of ['template', 'theme']) {
@@ -306,6 +310,10 @@ function maskGuard(html) {
 
 // ---------- 主流程 ----------
 function main() {
+  // cwd 守衛：data/out 以 cwd 解析，從錯誤目錄呼叫會把輸出寫到意外位置（其餘三支腳本同款守衛）
+  if (!fs.existsSync(path.join(WORK_ROOT, '.claude', 'skills', 'report-aws'))) {
+    fail('請從裝有本 skill 的專案根目錄執行（cwd 下找不到 .claude/skills/report-aws）');
+  }
   const opts = parseArgs(process.argv);
   for (const k of ['data', 'template', 'theme']) {
     if (!fs.existsSync(opts[k])) fail(`找不到 ${k} 檔案：${opts[k]}`);

@@ -18,12 +18,16 @@
 #    這些欄位是既有發現的唯一證據來源（見下方各段註解），刪掉不會讓 agent 寫「資料缺口」，
 #    而是讓它推出相反的結論（例：WebACLId 消失 → 從「未掛 WAF」變成「沒問題」）。
 #    新增檢查重點而需要新欄位時，補進投影並在此加斷言。
+#
+# 📌 架構取捨（2026-07 review）：本檔已是多段小語言拼接（jq 樞紐/bash 表/grep 解析），
+#    每加一個資料源就複製一段。**新增「衍生表/跨檔關聯」一律加在 network-facts.py（python）**，
+#    本檔只增純 jq 投影；勿再新增 bash 產表段落。
 
 set -u
 SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WORK_ROOT="$PWD"
-if [ ! -f "$WORK_ROOT/CLAUDE.md" ]; then
-  echo "錯誤：請從專案根目錄執行：bash .claude/skills/report-aws/scripts/digest.sh" >&2
+if [ ! -d "$WORK_ROOT/.claude/skills/report-aws" ]; then
+  echo "錯誤：請從裝有本 skill 的專案根目錄執行（cwd 下找不到 .claude/skills/report-aws）" >&2
   exit 1
 fi
 DATA="$WORK_ROOT/data"
@@ -40,6 +44,20 @@ mkdir -p "$DIGEST"
 
 FAIL=0
 MADE=0
+
+# failed_is_unset <item路徑>：判斷 scan-errors.log 中該項的 FAILED 是「未設定」還是真缺口。
+# 新格式的 FAILED 行自帶 reason=（scan.sh run() 寫入，錯誤首行），直接比對該行；
+# 舊格式（無 reason=）回退 grep -B1——已知多行錯誤訊息時會失準，故 scan.sh 已改為新格式。
+failed_is_unset() {
+  local line
+  line="$(grep -m1 "^FAILED: $1 " "$DATA/scan-errors.log" 2>/dev/null || true)"
+  [ -z "$line" ] && return 1
+  if printf '%s' "$line" | grep -q 'reason='; then
+    printf '%s' "$line" | grep -qiE 'NoSuch|NotFound|does not exist'
+  else
+    grep -B1 "^FAILED: $1 " "$DATA/scan-errors.log" 2>/dev/null | grep -qiE 'NoSuch|NotFound|does not exist'
+  fi
+}
 
 # assert <說明> <jq 條件> <檔案>
 assert() {
@@ -110,8 +128,7 @@ if [ -f "$S3LIST" ] && [ -d "$S3D" ]; then
     local f="$S3D/$1-$2.json"
     if [ -f "$f" ]; then
       if [ ! -s "$f" ]; then echo "__EMPTY__"; else cat "$f"; fi
-    elif grep -q "s3-buckets-detail/$1-$2 " "$ERRLOG_D" 2>/dev/null && \
-         grep -B1 "s3-buckets-detail/$1-$2 " "$ERRLOG_D" 2>/dev/null | grep -qiE 'NoSuch|NotFound|does not exist'; then
+    elif failed_is_unset "s3-buckets-detail/$1-$2"; then
       echo "__UNSET__"
     else
       echo "__ERROR__"
@@ -313,7 +330,7 @@ if [ -f "$ERRLOG_S" ]; then
       echo "|---|---|"
       grep '^FAILED:' "$ERRLOG_S" | sed 's/^FAILED: //' | while IFS= read -r line; do
         item="${line%% ::*}"
-        if grep -B1 -F "FAILED: $item " "$ERRLOG_S" | grep -qiE 'NoSuch|NotFound|does not exist'; then
+        if failed_is_unset "$item"; then
           echo "| \`$item\` | 未設定（該組態不存在）——有效證據 |"
         else
           echo "| \`$item\` | **資料缺口**（權限不足／服務未啟用，見 scan-errors.log） |"
