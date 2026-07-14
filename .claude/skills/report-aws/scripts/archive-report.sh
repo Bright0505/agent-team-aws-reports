@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # 把本期的報告與四支柱 findings 存檔到 archive/<期別>/
 #
-# 用法：bash scripts/archive-report.sh          （由 /report-aws 階段 ⑥ 呼叫）
-#       bash scripts/archive-report.sh 2026-06  （手動指定期別）
+# 用法（從專案根目錄）：bash .claude/skills/report-aws/scripts/archive-report.sh （由 /report-aws 階段 ⑥ 呼叫）
+#       bash .claude/skills/report-aws/scripts/archive-report.sh 2026-06  （手動指定期別）
 #
 # 存檔放在頂層 archive/，**不要放在 report/ 底下**——
 #   report/ 是每跑一次就被清空／覆蓋的目錄，把歷史存檔放進去等於「清報告時順手毀掉歷史」，
@@ -17,8 +17,11 @@
 # archive/ 同樣含帳號資訊，一併 gitignore，不進版控、不外傳。
 
 set -u
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$ROOT"
+WORK_ROOT="$PWD"
+if [ ! -d "$WORK_ROOT/.claude/skills/report-aws" ]; then
+  echo "錯誤：請從裝有本 skill 的專案根目錄執行（cwd 下找不到 .claude/skills/report-aws）" >&2
+  exit 1
+fi
 
 PERIOD="${1:-}"
 if [ -z "$PERIOD" ]; then

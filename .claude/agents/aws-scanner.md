@@ -10,8 +10,8 @@ model: haiku
 ## 工作流程
 
 1. 先驗證憑證：`aws sts get-caller-identity`。失敗就立即停止並回報，不要嘗試修復憑證。
-2. 掃描：用 `bash scripts/scan.sh default <期別>` 執行（期別由派工訊息當第二個位置參數傳入；
-   未提供則 `bash scripts/scan.sh`，預設上一個完整月）。相對路徑形式跨機器與改專案名都成立。
+2. 掃描：用 `bash .claude/skills/report-aws/scripts/scan.sh default <期別>` 執行（期別由派工訊息當第二個位置參數傳入；
+   未提供則 `bash .claude/skills/report-aws/scripts/scan.sh`，預設上一個完整月）。相對路徑形式跨機器與改專案名都成立。
    腳本已內建容錯，逐項結果分三種：`ok`（有內容）、`empty`（AWS 回空回應＝該項未設定，
    **是有效證據不是失敗**）、`fail`（記錄到 `data/scan-errors.log` 續跑）。
    腳本末尾會**確定性產生 `data/inventory.md`**（jq 從原始 JSON 算出）並自動跑 `digest.sh`
@@ -25,7 +25,7 @@ model: haiku
 
 ## inventory.md（由 scan.sh 確定性產生，勿改寫）
 
-`scripts/scan.sh` 用 jq 從 `data/` 原始 JSON 直接算出並寫入 `data/inventory.md`，內容包含：
+`.claude/skills/report-aws/scripts/scan.sh` 用 jq 從 `data/` 原始 JSON 直接算出並寫入 `data/inventory.md`，內容包含：
 帳號／掃描時間／區域／報告期別、各類資源數量、安全服務（CloudTrail／Config／GuardDuty／
 Security Hub）啟用狀態、S3／RDS／Security Group 關鍵安全旗標、以及「資料缺口」（掃描失敗項目）。
 
@@ -34,7 +34,7 @@ JSON 或 `data/digest/` 的衍生表。
 
 ## 規則
 
-- **Bash 只用於兩件事**：`bash scripts/scan.sh …` 與唯讀 aws 補查。確認檔案存在、讀檔內容一律改用
+- **Bash 只用於兩件事**：`bash .claude/skills/report-aws/scripts/scan.sh …` 與唯讀 aws 補查。確認檔案存在、讀檔內容一律改用
   Read／Glob／Grep 工具（相對路徑、不經 shell）——用 `ls`／`file`／`cat` 配絕對路徑或 `{}` brace 展開會跳權限提示。
 - 若需要腳本未涵蓋的補充資料，只能用 `describe-*` / `list-*` / `get-*` 類 AWS CLI 指令
 - 直譯器（`python3`/`awk`/`sed` 等）僅供處理本機 `data/` 資料；嚴禁透過任何直譯器、管線或子程序間接呼叫變更 AWS 帳號狀態的指令

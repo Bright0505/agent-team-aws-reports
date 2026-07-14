@@ -1,9 +1,9 @@
 /* ============================================================
 報告主題 tokens（可依專案抽換）
 ------------------------------------------------------------
-模板 templates/report.html.template 的版型只透過 var(--…) 取值，
+模板 .claude/skills/report-aws/templates/report.html.template 的版型只透過 var(--…) 取值，
 換專案時複製本檔改值即可，版型與章節結構不動。
-用法：node scripts/build-report.js --theme templates/themes/<專案>.css
+用法：node .claude/skills/report-aws/scripts/build-report.js --theme .claude/skills/report-aws/templates/themes/<專案>.css
 
 規則：
 - 淺色為預設；深色由 prefers-color-scheme 帶入，

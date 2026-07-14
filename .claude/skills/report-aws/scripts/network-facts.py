@@ -20,8 +20,8 @@ import json
 import os
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA = os.path.join(ROOT, "data")
+# 輸出資料跟著 cwd 走（由 digest.sh 從專案根目錄呼叫），腳本本身住在 skill 目錄
+DATA = os.path.join(os.getcwd(), "data")
 DIGEST = os.path.join(DATA, "digest")
 
 
@@ -124,7 +124,10 @@ def region_facts(region, out):
             pub = [s for s in sids if by_id.get(s, {}).get("igw")]
             priv = [s for s in sids if s in by_id and not by_id[s].get("igw")]
             unknown = [s for s in sids if s not in by_id]
-            if sids and len(pub) == len(sids):
+            if sids and len(unknown) == len(sids):
+                # 全部子網都不在掃描資料中＝純資料缺口;絕不能寫成「全部是私有」——那是相反結論
+                comp = "⚠️ 全部子網皆不在掃描資料中（資料缺口，無法判斷公私）"
+            elif sids and len(pub) == len(sids):
                 comp = f"**{len(sids)} 個子網全部是公有（全部通 IGW）**"
             elif pub:
                 comp = f"{len(pub)} 個公有 / {len(priv)} 個私有"
@@ -156,7 +159,10 @@ def main():
         "",
         "引用時對回 `data/regions/<區域>/` 的原始檔（本表只是它們的確定性推導）。",
     ]
-    made = any(region_facts(r, out) for r in regions)
+    # 不可用 any(generator)——它在第一個 True 後短路,多區域帳號會靜默漏掉後續區域
+    made = False
+    for r in regions:
+        made = region_facts(r, out) or made
     if not made:
         print("錯誤：沒有任何區域算得出網路事實（subnets/route-tables 缺漏）", file=sys.stderr)
         return 1
