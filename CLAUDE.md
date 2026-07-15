@@ -6,6 +6,10 @@
 ## 鐵則
 
 - **對 AWS 帳號全程唯讀**：只允許 `describe-*` / `list-*` / `get-*` 類 API，任何 agent 都不得執行變更帳號狀態的指令
+- **dontAsk 的語意是「不問＝自動拒絕」**：allow 內靜默放行、deny 內擋下、兩者皆非→自動拒。
+  因此 **allow 清單是 dontAsk 下唯一的放行通道，不是死配置**——新增會被主對話或 agent 直接呼叫的
+  腳本時，**必須同步加 allow 條目**（2026-07 就因 archive-report.sh 漏加而在無人值守中被拒，
+  流程被迫用 Read/Write 手動複製）。權限類改動要用**全新 session** 驗證，改設定的 session 驗不出來。
 - **唯讀的強制層在 IAM，不在權限提示**：掃描與補查一律使用唯讀憑證 profile（掛 AWS 管理政策
   `ReadOnlyAccess`），寫入 API 在帳號側直接 AccessDenied——構造上完備，任何本機指令繞法都無效。
   模型層保留兩道輔助防線：settings 的 aws 寫入 deny 清單、以及「`aws` 指令必須是字面量」規則

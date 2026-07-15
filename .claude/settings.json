@@ -18,6 +18,7 @@
       "Bash(.claude/skills/report-aws/scripts/scan.sh:*)",
       "Bash(bash .claude/skills/report-aws/scripts/digest.sh:*)",
       "Bash(bash .claude/skills/report-aws/scripts/check-links.sh:*)",
+      "Bash(bash .claude/skills/report-aws/scripts/archive-report.sh:*)",
       "Bash(node .claude/skills/report-aws/scripts/build-report.js:*)",
       "Bash(aws sts get-caller-identity:*)",
       "Bash(aws configure get:*)",
