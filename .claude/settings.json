@@ -20,6 +20,7 @@
       "Bash(bash .claude/skills/report-aws/scripts/check-links.sh:*)",
       "Bash(bash .claude/skills/report-aws/scripts/archive-report.sh:*)",
       "Bash(node .claude/skills/report-aws/scripts/build-report.js:*)",
+      "Bash(node .claude/skills/aws-diagram/scripts/build-diagram.js:*)",
       "Bash(aws sts get-caller-identity:*)",
       "Bash(aws configure get:*)",
       "Bash(aws:*)",

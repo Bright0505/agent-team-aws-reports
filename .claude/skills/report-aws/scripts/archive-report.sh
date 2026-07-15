@@ -41,7 +41,7 @@ fi
 
 mkdir -p "$DEST"
 N=0
-for f in "report/AWS架構報告.md" "report/report-data.json" "report/aws-report.html"; do
+for f in "report/AWS架構報告.md" "report/report-data.json" "report/aws-report.html" "report/aws-architecture.drawio"; do
   [ -f "$f" ] && { cp "$f" "$DEST/"; N=$((N + 1)); }
 done
 mkdir -p "$DEST/findings"
