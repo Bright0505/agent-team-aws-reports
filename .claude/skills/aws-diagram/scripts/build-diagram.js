@@ -358,14 +358,17 @@ const GROUP_BASE =
   'points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0.75,1],[0.5,1],[0.25,1],[0,1],[0,0.75],[0,0.5],[0,0.25]];' +
   'outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;fontStyle=0;container=1;pointerEvents=0;' +
   'collapsible=0;recursiveResize=0;shape=mxgraph.aws4.group;verticalAlign=top;align=left;spacingLeft=30;fillColor=none;';
+// 樣式對齊 draw.io 現行 AWS 圖庫（2022+ 官方改版：扁平分類色、無漸層）——
+// 顏色與描邊取自 Sidebar-AWS4.js 各分類區段的現行定義，不要退回 2019 世代的漸層舊色
 const RES_BASE =
-  'sketch=0;outlineConnect=0;fontColor=#232F3E;gradientDirection=north;strokeColor=#ffffff;dashed=0;' +
+  'sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;strokeColor=#ffffff;dashed=0;' +
   'verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=10;fontStyle=0;aspect=fixed;' +
   'shape=mxgraph.aws4.resourceIcon;';
-const resIcon = (name, fill, grad) => `${RES_BASE}resIcon=mxgraph.aws4.${name};fillColor=${fill};gradientColor=${grad};`;
-// 產品圖示（stencil 自帶配色，不吃 fillColor）：ALB/IGW/NAT/Endpoints/Users 等在 aws4 是獨立 shape
-const prodIcon = (name) =>
-  'sketch=0;outlineConnect=0;fontColor=#232F3E;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;' +
+const resIcon = (name, fill) => `${RES_BASE}resIcon=mxgraph.aws4.${name};fillColor=${fill};`;
+// 產品圖示：ALB/IGW/NAT/Endpoints/Users 等在 aws4 是獨立 shape，圖形以 fillColor 上色
+//（漏給 fillColor 會變白描邊＋白底＝整顆隱形；官方樣式 strokeColor=none）
+const prodIcon = (name, fill) =>
+  `sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=${fill};strokeColor=none;dashed=0;verticalLabelPosition=bottom;` +
   `verticalAlign=top;align=center;html=1;whiteSpace=wrap;fontSize=10;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.${name};`;
 
 const STYLES = {
@@ -392,23 +395,26 @@ const STYLES = {
     'fillColor=#F5F0FF;strokeColor=#8C4FFF;fontColor=#232F3E;container=0;',
   label:
     'text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontColor=#545B64;',
-  users: prodIcon('users'),
-  // aws4 分類色：網路紫、運算橘、資料庫藍、儲存綠
-  cloudfront: resIcon('cloudfront', '#5A30B5', '#945DF2'),
-  route53: resIcon('route_53', '#5A30B5', '#945DF2'),
-  igw: prodIcon('internet_gateway'),
-  natgw: prodIcon('nat_gateway'),
-  alb: prodIcon('application_load_balancer'),
-  vpce: prodIcon('endpoints'),
-  ecsService: resIcon('fargate', '#D05C17', '#F78E04'),
-  ec2: resIcon('ec2', '#D05C17', '#F78E04'),
-  rds: resIcon('rds', '#3334B9', '#4D72F3'),
-  s3: resIcon('s3', '#277116', '#60A337'),
+  users: prodIcon('users', '#1E262E'),
+  // 2022+ 官方分類色：Networking 紫 / Compute·Containers 橘 / Database 洋紅 / Storage 綠
+  cloudfront: resIcon('cloudfront', '#8C4FFF'),
+  route53: resIcon('route_53', '#8C4FFF'),
+  igw: prodIcon('internet_gateway', '#8C4FFF'),
+  natgw: prodIcon('nat_gateway', '#8C4FFF'),
+  alb: prodIcon('application_load_balancer', '#8C4FFF'),
+  vpce: prodIcon('endpoints', '#8C4FFF'),
+  ecsService: resIcon('fargate', '#ED7100'),
+  ec2: resIcon('ec2', '#ED7100'),
+  rds: resIcon('rds', '#C925D1'),
+  s3: resIcon('s3', '#7AA116'),
   edge:
     'edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;' +
     'strokeColor=#545B64;fontColor=#232F3E;endArrow=block;endFill=1;',
 };
 const DISABLED = 'opacity=30;';
+// 邊的錨點：垂直流量鏈（IGW→ALB→ECS→RDS）底出頂入；總覽頁橫向（使用者→CF→VPC/S3）右出左入
+const V_FLOW = 'exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;';
+const H_FLOW = 'exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;';
 
 // 版面常數（間距/尺寸都改這裡）
 const LAYOUT = {
@@ -531,7 +537,7 @@ function buildOverview(model, drawn) {
       L.icon,
       L.icon
     );
-    if (cf.enabled) pg.edge(`e-ov-users-${cf.id}`, 'ov-users', `ov-cf-${cf.id}`);
+    if (cf.enabled) pg.edge(`e-ov-users-${cf.id}`, 'ov-users', `ov-cf-${cf.id}`, '', H_FLOW);
     drawn.cloudfront++;
   });
 
@@ -579,9 +585,9 @@ function buildOverview(model, drawn) {
     for (const t of cf.targets) {
       if (t.kind === 'alb' && !seenVpc.has(t.alb.vpcId)) {
         seenVpc.add(t.alb.vpcId);
-        pg.edge(`e-ov-${cf.id}-${t.alb.vpcId}`, `ov-cf-${cf.id}`, `ov-vpc-${t.alb.vpcId}`, '', cf.enabled ? '' : DISABLED);
+        pg.edge(`e-ov-${cf.id}-${t.alb.vpcId}`, `ov-cf-${cf.id}`, `ov-vpc-${t.alb.vpcId}`, '', H_FLOW + (cf.enabled ? '' : DISABLED));
       } else if (t.kind === 's3') {
-        pg.edge(`e-ov-${cf.id}-s3-${t.bucket}`, `ov-cf-${cf.id}`, `ov-s3-${t.bucket}`, '', cf.enabled ? '' : DISABLED);
+        pg.edge(`e-ov-${cf.id}-s3-${t.bucket}`, `ov-cf-${cf.id}`, `ov-s3-${t.bucket}`, '', H_FLOW + (cf.enabled ? '' : DISABLED));
       }
     }
   }
@@ -671,7 +677,7 @@ function buildVpcPage(regionModel, v, drawn) {
       const id = pg.vertex(`${v.id}-alb-${alb.name}`, band, alb.name, STYLES.alb, x, 34, L.icon, L.icon);
       albCellByArn.set(alb.arn, id);
       drawn.alb++;
-      if (igwCell) pg.edge(`e-${v.id}-igw-${alb.name}`, igwCell, id, alb.listeners.join(' / '));
+      if (igwCell) pg.edge(`e-${v.id}-igw-${alb.name}`, igwCell, id, alb.listeners.join(' / '), V_FLOW);
     });
     y += L.bandH + L.bandGap;
   }
@@ -712,7 +718,7 @@ function buildVpcPage(regionModel, v, drawn) {
       svcCellByName.set(svc.name, id);
       drawn.ecsService++;
       if (svc.albArn && albCellByArn.has(svc.albArn)) {
-        pg.edge(`e-${v.id}-alb-${svc.name}`, albCellByArn.get(svc.albArn), id, svc.tg ? `${svc.tg.protocol}:${svc.tg.port}` : '');
+        pg.edge(`e-${v.id}-alb-${svc.name}`, albCellByArn.get(svc.albArn), id, svc.tg ? `${svc.tg.protocol}:${svc.tg.port}` : '', V_FLOW);
       }
     });
     y += L.bandH + L.bandGap;
@@ -741,12 +747,14 @@ function buildVpcPage(regionModel, v, drawn) {
       L.bandH
     );
     placeRow(v.rds, (db, x) => {
-      const warn = db.publiclyAccessible ? '<br>⚠ 公開存取' : '';
+      // 警示只上在標籤文字，不動 strokeColor——resourceIcon 的圖形本體是用 strokeColor 畫的，
+      // 覆寫會把整個圖形塗成紅色（看起來像另一顆圖示）
+      const warn = db.publiclyAccessible ? '<br><font color="#D13212">⚠ 公開存取</font>' : '';
       const id = pg.vertex(
         `${v.id}-rds-${db.name}`,
         band,
         `${db.name}<br>${db.engine}${db.multiAZ ? '（Multi-AZ）' : ''}${warn}`,
-        STYLES.rds + (db.publiclyAccessible ? 'strokeColor=#D13212;' : ''),
+        STYLES.rds,
         x,
         34,
         L.icon,
@@ -755,7 +763,7 @@ function buildVpcPage(regionModel, v, drawn) {
       drawn.rds++;
       for (const { svc, db: d2 } of regionModel.ecsToRds) {
         if (d2 === db && svcCellByName.has(svc.name)) {
-          pg.edge(`e-${v.id}-${svc.name}-${db.name}`, svcCellByName.get(svc.name), id, `TCP:${db.port}`);
+          pg.edge(`e-${v.id}-${svc.name}-${db.name}`, svcCellByName.get(svc.name), id, `TCP:${db.port}`, V_FLOW);
         }
       }
     });
