@@ -8,8 +8,9 @@
  *   node .claude/skills/aws-diagram/scripts/build-diagram.js --out report/aws-architecture.drawio
  *
  * 頁面結構（資料驅動，不寫死環境名）：
- *   頁 1「總覽」：使用者 → CloudFront → 各 VPC 縮略框／S3
- *   頁 2..N：每個「有工作負載（ALB/ECS/RDS/EC2 任一）」的 VPC 一頁
+ *   頁 1「匯總」：全帳號一張——雲外入口 ＋ 帳號層服務欄 ＋ Region 內各 VPC 的公私分層拓撲
+ *   頁 2「總覽」：使用者 → CloudFront → 各 VPC 縮略框／S3
+ *   頁 3..N：每個「有工作負載（ALB/ECS/RDS/EC2 任一）」的 VPC 一頁
  *
  * 邊一律只畫「可證明的 join」，證明不了就不畫、不猜：
  *   CloudFront→ALB/S3＝origin domain 精確比對；ALB→ECS＝TG ARN 雙向 join；
@@ -103,6 +104,8 @@ function loadModel() {
   const r53 = readJsonMaybe(DATA('global', 'route53-hosted-zones.json'));
   const zones = ((r53 || {}).HostedZones || []).map((z) => z.Name).sort();
 
+  const iamUsers = ((readJsonMaybe(DATA('global', 'iam-users.json')) || {}).Users || []).length;
+
   const regionsDir = DATA('regions');
   if (!fs.existsSync(regionsDir)) fail('缺少 data/regions/——請先跑 /report-aws 掃描');
   const regionNames = fs.readdirSync(regionsDir).filter((d) => fs.statSync(path.join(regionsDir, d)).isDirectory()).sort();
@@ -137,7 +140,7 @@ function loadModel() {
     })
     .sort(byName);
 
-  return { accountId, cfs, buckets, zones, regions };
+  return { accountId, cfs, buckets, zones, iamUsers, regions };
 }
 
 function loadRegion(region) {
@@ -208,6 +211,24 @@ function loadRegion(region) {
     }
   }
 
+  const sgById = new Map(sgs.map((g) => [g.GroupId, g]));
+  const sgName = (id) => (sgById.get(id) || {}).GroupName || id;
+
+  // 一組 SG 對 0.0.0.0/0 開放的埠（確定性算出，供匯總頁的 IGW→ALB 邊標用）
+  // 回傳如 ['80', '443'] 或 ['ALL']；只看 IpRanges 含 0.0.0.0/0 的規則，不含 SG 對 SG
+  function openToWorldPorts(sgIds) {
+    const ports = new Set();
+    for (const id of sgIds) {
+      for (const p of (sgById.get(id) || {}).IpPermissions || []) {
+        if (!(p.IpRanges || []).some((r) => r.CidrIp === '0.0.0.0/0')) continue;
+        if (p.IpProtocol === '-1') ports.add('ALL');
+        else if (p.FromPort === p.ToPort) ports.add(String(p.FromPort));
+        else ports.add(`${p.FromPort}-${p.ToPort}`);
+      }
+    }
+    return [...ports].sort((a, b) => (parseInt(a, 10) || 1e9) - (parseInt(b, 10) || 1e9));
+  }
+
   const albs = lbs
     .map((lb) => ({
       arn: lb.LoadBalancerArn,
@@ -218,6 +239,8 @@ function loadRegion(region) {
       vpcId: lb.VpcId,
       subnetIds: (lb.AvailabilityZones || []).map((z) => (typeof z === 'string' ? z : z.SubnetId)),
       listeners: [...new Set(listenersByLbArn.get(lb.LoadBalancerArn) || [])].sort(),
+      sgIds: lb.SecurityGroups || [],
+      openPorts: openToWorldPorts(lb.SecurityGroups || []),
     }))
     .sort(byName);
   const albByArn = new Map(albs.map((a) => [a.arn, a]));
@@ -250,6 +273,7 @@ function loadRegion(region) {
           desired: s.desiredCount,
           running: s.runningCount,
           sgIds: cfg.securityGroups || [],
+          assignPublicIp: cfg.assignPublicIp || null,
           subnetIds,
           vpcId,
           tg,
@@ -260,15 +284,21 @@ function loadRegion(region) {
   }
   services.sort(byName);
 
-  const sgById = new Map(sgs.map((g) => [g.GroupId, g]));
-
   const rdsInstances = rdsList
     .map((db) => {
       const grp = db.DBSubnetGroup || {};
       const subnetIds = (grp.Subnets || []).map((s) => s.SubnetIdentifier);
+      // DB subnet group 公私混雜＝群組同時含公有與私有子網（依實際路由判定，不看命名）
+      const tiers = new Set(subnetIds.map((id) => (subnetById.get(id) || {}).isPublic).filter((x) => x !== undefined));
+      const anyPublic = tiers.has(true);
       return {
         name: db.DBInstanceIdentifier,
         engine: `${db.Engine || ''} ${db.EngineVersion || ''}`.trim(),
+        az: db.AvailabilityZone || null,
+        secondaryAz: db.SecondaryAvailabilityZone || null,
+        subnetGroupName: grp.DBSubnetGroupName || '',
+        subnetGroupMixed: tiers.size > 1,
+        subnetGroupAllPublic: anyPublic && tiers.size === 1,
         multiAZ: !!db.MultiAZ,
         publiclyAccessible: !!db.PubliclyAccessible,
         port: (db.Endpoint || {}).Port || { postgres: 5432, mysql: 3306, mariadb: 3306 }[db.Engine] || null,
@@ -341,7 +371,15 @@ function loadRegion(region) {
     }
   }
 
-  return { region, vpcs, subnets, albs, services, rdsInstances, ecsToRds, albByArn };
+  // 帳號層（區域範圍）治理服務：空回應＝未設定，是有效證據（見 CLAUDE.md），照實標「未啟用」
+  const recorders = ((readJsonMaybe(R('config-recorders.json')) || {}).ConfigurationRecordersStatus || []);
+  const governance = {
+    cloudtrail: ((readJsonMaybe(R('cloudtrail-trails.json')) || {}).trailList || []).length,
+    config: recorders.filter((r) => r.recording).length,
+    guardduty: ((readJsonMaybe(R('guardduty-detectors.json')) || {}).DetectorIds || []).length,
+  };
+
+  return { region, vpcs, subnets, albs, services, rdsInstances, ecsToRds, albByArn, sgName, governance };
 }
 
 // ---------- draw.io XML ----------
@@ -410,6 +448,38 @@ const STYLES = {
   edge:
     'edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;' +
     'strokeColor=#545B64;fontColor=#232F3E;endArrow=block;endFill=1;',
+  // --- 匯總頁專用 ---
+  // 層別直欄是「背景通道」不是容器（container=0）：子網與資源都疊在它上面，靠先後順序分層
+  tierPublic:
+    'rounded=0;whiteSpace=wrap;html=1;fontSize=12;fontStyle=1;verticalAlign=top;align=center;spacingTop=4;' +
+    'fillColor=#E9F3E0;strokeColor=#7AA116;fontColor=#5E7F11;container=0;',
+  tierPrivate:
+    'rounded=0;whiteSpace=wrap;html=1;fontSize=12;fontStyle=1;verticalAlign=top;align=center;spacingTop=4;' +
+    'fillColor=#E6F2F8;strokeColor=#147EBA;fontColor=#0F5E8C;container=0;',
+  subTile:
+    'rounded=0;whiteSpace=wrap;html=1;fontSize=9;verticalAlign=middle;align=center;' +
+    'fillColor=#FFFFFF;strokeColor=#879196;fontColor=#232F3E;container=0;',
+  subTileWarn:
+    'rounded=0;whiteSpace=wrap;html=1;fontSize=9;verticalAlign=middle;align=center;' +
+    'fillColor=#FFFFFF;strokeColor=#D13212;strokeWidth=2;fontColor=#232F3E;container=0;',
+  // 資源列外框：橘＝跨層（子網集合同時含公有與私有），其餘依資源分類色
+  rowFrame: (color, fill) =>
+    `rounded=0;whiteSpace=wrap;html=1;fontSize=11;verticalAlign=top;align=left;spacingLeft=8;spacingTop=2;` +
+    `fillColor=${fill};strokeColor=${color};fontColor=${color};container=0;`,
+  rowFrameSpan:
+    'rounded=0;whiteSpace=wrap;html=1;fontSize=11;fontStyle=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=2;' +
+    'fillColor=#FFF4EC;strokeColor=#ED7100;strokeWidth=2;fontColor=#B85A00;container=0;',
+  sgFrame:
+    'rounded=0;whiteSpace=wrap;html=1;fontSize=10;verticalAlign=top;align=center;spacingTop=2;' +
+    'fillColor=none;strokeColor=#D13212;dashed=0;fontColor=#D13212;container=0;',
+  govOn:
+    'rounded=0;whiteSpace=wrap;html=1;fontSize=11;verticalAlign=middle;align=left;spacingLeft=10;' +
+    'fillColor=#FFFFFF;strokeColor=#545B64;fontColor=#232F3E;container=0;',
+  govOff:
+    'rounded=0;whiteSpace=wrap;html=1;fontSize=11;verticalAlign=middle;align=left;spacingLeft=10;' +
+    'fillColor=#F2F3F3;strokeColor=#B4BABF;fontColor=#879196;dashed=1;container=0;',
+  sideTitle:
+    'text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=12;fontStyle=1;fontColor=#232F3E;',
 };
 const DISABLED = 'opacity=30;';
 // 邊的錨點：垂直流量鏈（IGW→ALB→ECS→RDS）底出頂入；總覽頁橫向（使用者→CF→VPC/S3）右出左入
@@ -466,7 +536,455 @@ class Page {
   }
 }
 
-// ---------- 頁 1：總覽 ----------
+// 匯總頁版面常數（只影響匯總頁；改這裡不動其他分頁）
+const SUM = {
+  icon: 78,
+  colW: 470, // 單一層別通道寬
+  colGap: 26,
+  vpcPadX: 26,
+  bandTop: 120, // VPC 框內：通道起點（上方留給標題與 IGW／VPC Endpoint 列）
+  tierTitleH: 46, // 通道標題佔用高度（可能兩行：含 ⚠ 說明），子網方塊由此往下堆
+  subH: 50,
+  subGap: 8,
+  subPad: 10,
+  rowH: 170, // 資源列（外框）高
+  rowGap: 24,
+  rowPadTop: 28, // 外框標題佔用高度
+  sgPad: 10,
+  sgTitleH: 24,
+  vpcGap: 40,
+  sidebarW: 250,
+  extW: 200, // 雲外左欄
+  cfSlotH: 130,
+};
+
+// ---------- 頁 1：匯總（全帳號一張） ----------
+// 版型：雲外入口欄 →｜AWS Cloud｜帳號層服務欄 ＋ Region 框（內含各 VPC 的公私分層拓撲）｜
+// 一切依 data/ 可證明的事實：層別依實際路由、邊只畫可證明的 join、未設定的服務照實灰化標「未啟用」
+function buildSummary(model, sd) {
+  const S = SUM;
+  const pg = new Page('summary', '匯總');
+
+  // ---- 雲外左欄：使用者 → Route 53 → CloudFront ----
+  const extX = 40;
+  let ey = 60;
+  const usersId = pg.vertex('sum-users', '1', '使用者', STYLES.users, extX + (S.extW - S.icon) / 2, ey, S.icon, S.icon);
+  ey += 150;
+  let upstreamId = usersId;
+  if (model.zones.length) {
+    upstreamId = pg.vertex(
+      'sum-r53',
+      '1',
+      `Route 53<br>${model.zones.join('<br>')}`,
+      STYLES.route53,
+      extX + (S.extW - S.icon) / 2,
+      ey,
+      S.icon,
+      S.icon
+    );
+    pg.edge('e-sum-users-r53', usersId, upstreamId, '', V_FLOW);
+    ey += 150;
+  }
+  const cfTop = ey;
+  model.cfs.forEach((cf, i) => {
+    const label =
+      `${cf.name}` +
+      (cf.comment ? `<br>${cf.comment}` : '') +
+      (cf.enabled ? '' : '<br><font color="#879196">（已停用）</font>');
+    pg.vertex(
+      `sum-cf-${cf.id}`,
+      '1',
+      label,
+      STYLES.cloudfront + (cf.enabled ? '' : DISABLED),
+      extX + (S.extW - S.icon) / 2,
+      cfTop + i * S.cfSlotH,
+      S.icon,
+      S.icon
+    );
+    if (cf.enabled) pg.edge(`e-sum-up-${cf.id}`, upstreamId, `sum-cf-${cf.id}`, '', V_FLOW);
+    sd.cloudfront++;
+  });
+  const extBottom = cfTop + Math.max(model.cfs.length, 1) * S.cfSlotH;
+
+  // ---- Region 框內容先算好尺寸，雲框才好包 ----
+  const vpcW = 2 * S.colW + S.colGap + 2 * S.vpcPadX;
+  const regionBlocks = model.regions.map((r) => {
+    const vpcs = r.vpcs.map((v) => ({ v, plan: planVpc(r, v) }));
+    const h = 50 + vpcs.reduce((n, x) => n + x.plan.frameH + S.vpcGap, 0) + 10;
+    return { r, vpcs, h };
+  });
+  const regionsH = regionBlocks.reduce((n, b) => n + b.h + 24, 0);
+
+  // ---- 帳號層服務欄尺寸 ----
+  const govRows = [];
+  for (const r of model.regions) {
+    govRows.push(['AWS CloudTrail', r.governance.cloudtrail, `${r.region}`]);
+    govRows.push(['AWS Config', r.governance.config, `${r.region}`]);
+    govRows.push(['Amazon GuardDuty', r.governance.guardduty, `${r.region}`]);
+  }
+  const sideH = 40 + govRows.length * 46 + 40 + model.buckets.length * 118 + 70;
+
+  const cloudX = extX + S.extW + 70;
+  const cloudY = 40;
+  const sideX = 30;
+  const regionX = sideX + S.sidebarW + 40;
+  const regionW = vpcW + 60;
+  const cloudW = regionX + regionW + 30;
+  const cloudH = Math.max(sideH, regionsH) + 80;
+  const cloud = pg.vertex(
+    'sum-cloud',
+    '1',
+    `AWS Cloud（帳號 ${model.accountId}）`,
+    STYLES.awsCloud,
+    cloudX,
+    cloudY,
+    cloudW,
+    cloudH
+  );
+
+  // ---- 帳號層服務欄 ----
+  let sy = 50;
+  pg.vertex('sum-side-title', cloud, '帳號層服務', STYLES.sideTitle, sideX, sy, S.sidebarW, 20);
+  sy += 26;
+  govRows.forEach(([name, count, scope], i) => {
+    const on = count > 0;
+    pg.vertex(
+      `sum-gov-${i}`,
+      cloud,
+      `${name}<br>${scope}：${on ? `已啟用 × ${count}` : '未啟用'}`,
+      on ? STYLES.govOn : STYLES.govOff,
+      sideX,
+      sy,
+      S.sidebarW,
+      40
+    );
+    sy += 46;
+  });
+  sy += 14;
+  pg.vertex('sum-side-s3', cloud, `Amazon S3（${model.buckets.length}）`, STYLES.sideTitle, sideX, sy, S.sidebarW, 20);
+  sy += 26;
+  model.buckets.forEach((b, i) => {
+    pg.vertex(`sum-s3-${b}`, cloud, b, STYLES.s3, sideX + 10, sy + i * 118, S.icon, S.icon);
+    sd.s3++;
+  });
+  sy += model.buckets.length * 118 + 10;
+  pg.vertex('sum-side-iam', cloud, `AWS IAM：使用者 × ${model.iamUsers}`, STYLES.sideTitle, sideX, sy, S.sidebarW, 20);
+
+  // ---- Region 框與各 VPC ----
+  let ry = 50;
+  for (const blk of regionBlocks) {
+    const regionCell = pg.vertex(`sum-region-${blk.r.region}`, cloud, blk.r.region, STYLES.region, regionX, ry, regionW, blk.h);
+    let vy = 40;
+    for (const { v, plan } of blk.vpcs) {
+      drawVpcBlock(pg, regionCell, blk.r, v, plan, 30, vy, vpcW, sd);
+      vy += plan.frameH + S.vpcGap;
+    }
+    ry += blk.h + 24;
+  }
+
+  // ---- CloudFront → ALB（origin domain 精確比對；證明不了的 origin 不畫）----
+  for (const cf of model.cfs) {
+    for (const t of cf.targets) {
+      if (t.kind === 'alb') {
+        pg.edge(`e-sum-${cf.id}-${t.alb.name}`, `sum-cf-${cf.id}`, `sum-alb-${t.alb.name}`, '', H_FLOW + (cf.enabled ? '' : DISABLED));
+      } else if (t.kind === 's3') {
+        pg.edge(`e-sum-${cf.id}-s3-${t.bucket}`, `sum-cf-${cf.id}`, `sum-s3-${t.bucket}`, '', H_FLOW + (cf.enabled ? '' : DISABLED));
+      }
+    }
+  }
+
+  pg.width = cloudX + cloudW + 60;
+  pg.height = Math.max(cloudY + cloudH, extBottom) + 60;
+  return pg;
+}
+
+// 依資源的子網集合判定層別：全公有→public、全私有→private、兩者皆有→span（跨層）
+function tierOfSubnets(regionModel, subnetIds) {
+  const tiers = new Set();
+  for (const id of subnetIds) {
+    const s = regionModel.subnets.find((x) => x.id === id);
+    if (s) tiers.add(s.isPublic ? 'public' : 'private');
+  }
+  if (tiers.size === 0) return 'private';
+  if (tiers.size > 1) return 'span';
+  return [...tiers][0];
+}
+
+// 先算好一個 VPC 區塊要多高、有哪些資源列——畫之前要先知道尺寸，Region 框才包得住
+function planVpc(regionModel, v) {
+  const S = SUM;
+  const azs = [...new Set(v.subnets.map((s) => s.az))].sort();
+  const pubRows = Math.max(0, ...azs.map((az) => v.subnets.filter((s) => s.az === az && s.isPublic).length));
+  const privRows = Math.max(0, ...azs.map((az) => v.subnets.filter((s) => s.az === az && !s.isPublic).length));
+  const subBlockH = S.tierTitleH + Math.max(pubRows, privRows) * (S.subH + S.subGap);
+
+  const rows = [];
+  if (v.albs.length) {
+    const sgIds = [...new Set(v.albs.flatMap((a) => a.sgIds))];
+    const schemes = [...new Set(v.albs.map((a) => a.scheme))].join('/');
+    rows.push({
+      kind: 'alb',
+      key: 'alb',
+      title: `Application Load Balancer（${schemes}）`,
+      tier: tierOfSubnets(regionModel, [...new Set(v.albs.flatMap((a) => a.subnetIds))]),
+      sgIds,
+      items: v.albs,
+    });
+  }
+  for (const cluster of [...new Set(v.services.map((s) => s.cluster))].sort()) {
+    const svcs = v.services.filter((s) => s.cluster === cluster).sort(byName);
+    const lt = [...new Set(svcs.map((s) => s.launchType))].join('/');
+    const pubIp = [...new Set(svcs.map((s) => s.assignPublicIp).filter(Boolean))].join('/');
+    const tier = tierOfSubnets(regionModel, [...new Set(svcs.flatMap((s) => s.subnetIds))]);
+    rows.push({
+      kind: 'ecs',
+      key: `ecs-${cluster}`,
+      title:
+        `ECS Cluster ${cluster}（${lt}）` +
+        (tier === 'span' ? '　⚠ 工作負載子網同時含公有與私有' : '') +
+        (pubIp ? `　assignPublicIp=${pubIp}` : ''),
+      tier,
+      sgIds: [...new Set(svcs.flatMap((s) => s.sgIds))],
+      items: svcs,
+    });
+  }
+  if (v.ec2.length) {
+    rows.push({
+      kind: 'ec2',
+      key: 'ec2',
+      title: 'Amazon EC2',
+      tier: tierOfSubnets(regionModel, v.ec2.map((i) => i.subnetId)),
+      sgIds: [],
+      items: v.ec2,
+    });
+  }
+  if (v.rds.length) {
+    // 通道位置一律由 DB subnet group 的實際路由決定，不因「DB 理應在私有層」而美化——
+    // 子網群組全部通 IGW 時就該畫在公有通道上，那正是要一眼看見的風險
+    const tier = tierOfSubnets(regionModel, [...new Set(v.rds.flatMap((d) => d.subnetIds))]);
+    const warn =
+      tier === 'span' ? '　⚠ DB subnet group 公私混雜' : tier === 'public' ? '　⚠ DB subnet group 子網全部通 IGW' : '';
+    rows.push({
+      kind: 'rds',
+      key: 'rds',
+      title: `Amazon RDS${warn}`,
+      tier,
+      sgIds: [...new Set(v.rds.flatMap((d) => d.sgIds))],
+      items: v.rds,
+    });
+  }
+
+  const frameH = S.bandTop + subBlockH + rows.length * (S.rowH + S.rowGap) + 30;
+  return { azs, pubRows, privRows, subBlockH, rows, frameH };
+}
+
+function drawVpcBlock(pg, parent, regionModel, v, plan, x, y, w, sd) {
+  const S = SUM;
+  const title = `${v.name}（${v.id}）${v.cidr}${v.isDefault ? '　default VPC' : ''}`;
+  const frame = pg.vertex(`sum-vpc-${v.id}`, parent, title, STYLES.vpc, x, y, w, plan.frameH);
+
+  const pubX = S.vpcPadX;
+  const privX = S.vpcPadX + S.colW + S.colGap;
+  const colX = { public: pubX, private: privX, span: pubX };
+  const colW = { public: S.colW, private: S.colW, span: 2 * S.colW + S.colGap };
+
+  // 頂列：IGW（左，貼公有通道）與 VPC Endpoint（右，貼私有通道）
+  if (v.igwId) {
+    pg.vertex(`sum-igw-${v.id}`, frame, `Internet Gateway<br>${v.igwId}`, STYLES.igw, pubX + 20, 30, S.icon, S.icon);
+  }
+  v.endpoints.forEach((e, i) => {
+    pg.vertex(
+      `sum-vpce-${e.id}`,
+      frame,
+      `VPC Endpoint（${e.type}）<br>${e.service}`,
+      STYLES.vpce,
+      privX + S.colW - 20 - (i + 1) * (S.icon + 40),
+      30,
+      S.icon,
+      S.icon
+    );
+  });
+  v.nats.forEach((n, i) => {
+    pg.vertex(`sum-nat-${n.NatGatewayId}`, frame, `NAT Gateway<br>${n.NatGatewayId}`, STYLES.natgw, pubX + 140 + i * (S.icon + 40), 30, S.icon, S.icon);
+  });
+
+  // 兩條背景通道：全高，先畫（後畫的子網／資源會疊在上面）
+  const bandH = plan.frameH - S.bandTop - 16;
+  const misnamed = v.subnets.some((s) => s.warnNamedPrivate);
+  pg.vertex(
+    `sum-tier-pub-${v.id}`,
+    frame,
+    `公有子網通道（0.0.0.0/0 → IGW）` +
+      (misnamed ? '<br><font color="#D13212">⚠＝命名 private，實際通 IGW</font>' : '') +
+      (plan.pubRows === 0 ? '<br><font color="#879196">此 VPC 無公有子網</font>' : ''),
+    STYLES.tierPublic,
+    pubX,
+    S.bandTop,
+    S.colW,
+    bandH
+  );
+  pg.vertex(
+    `sum-tier-priv-${v.id}`,
+    frame,
+    `私有子網通道（無 0.0.0.0/0 → IGW）${plan.privRows === 0 ? '<br><font color="#879196">此 VPC 無私有子網</font>' : ''}`,
+    STYLES.tierPrivate,
+    privX,
+    S.bandTop,
+    S.colW,
+    bandH
+  );
+
+  // 子網方塊：每 AZ 一欄堆在通道頂端；短名＝去掉 VPC 名前綴
+  // （VPC 名可能帶 -vpc 後綴而子網名沒有，故兩種前綴都試）
+  const prefixes = [`${v.name}-`, `${v.name.replace(/-vpc$/, '')}-`];
+  const shortName = (s) => {
+    const n = s.name || '（無 Name）';
+    const p = prefixes.find((x) => n.startsWith(x) && n.length > x.length);
+    return p ? n.slice(p.length) : n;
+  };
+  const n = Math.max(plan.azs.length, 1);
+  const tileW = (S.colW - 2 * S.subPad - (n - 1) * S.subGap) / n;
+  plan.azs.forEach((az, ai) => {
+    for (const isPub of [true, false]) {
+      const list = v.subnets.filter((s) => s.az === az && s.isPublic === isPub).sort(byName);
+      const baseX = (isPub ? pubX : privX) + S.subPad + ai * (tileW + S.subGap);
+      list.forEach((s, i) => {
+        const label = `${s.warnNamedPrivate ? '⚠ ' : ''}${shortName(s)}<br>${s.cidr}<br>${s.az}`;
+        pg.vertex(
+          `sum-sub-${s.id}`,
+          frame,
+          label,
+          s.warnNamedPrivate ? STYLES.subTileWarn : STYLES.subTile,
+          baseX,
+          S.bandTop + S.tierTitleH + i * (S.subH + S.subGap),
+          tileW,
+          S.subH
+        );
+        sd.subnet++;
+      });
+    }
+  });
+
+  // 資源列：由上而下＝流量鏈（ALB → ECS → EC2 → RDS）
+  const rowColor = { alb: '#8C4FFF', ecs: '#ED7100', ec2: '#ED7100', rds: '#C925D1' };
+  const rowFill = { alb: '#F7F2FF', ecs: '#FFF4EC', ec2: '#FFF4EC', rds: '#FDF0FE' };
+  let ry = S.bandTop + plan.subBlockH + 10;
+  const cellOf = new Map(); // key → 該列各資源的 cell id
+
+  for (const row of plan.rows) {
+    const rx = colX[row.tier];
+    const rw = colW[row.tier];
+    const frameStyle = row.tier === 'span' ? STYLES.rowFrameSpan : STYLES.rowFrame(rowColor[row.kind], rowFill[row.kind]);
+    pg.vertex(`sum-row-${v.id}-${row.key}`, frame, row.title, frameStyle, rx, ry, rw, S.rowH);
+
+    // SG 紅框：標題列放 SG 名稱（沒有 SG 資訊就不畫框，不編造）
+    const sgX = rx + S.sgPad;
+    const sgY = ry + S.rowPadTop;
+    const sgW = rw - 2 * S.sgPad;
+    const sgH = S.rowH - S.rowPadTop - 8;
+    let sgId = null;
+    if (row.sgIds.length) {
+      const names = row.sgIds.map((id) => regionModel.sgName(id)).sort().join('、');
+      sgId = pg.vertex(`sum-sg-${v.id}-${row.key}`, frame, `Security Group：${names}`, STYLES.sgFrame, sgX, sgY, sgW, sgH);
+    }
+
+    const items = row.items;
+    const slot = sgW / items.length;
+    const ids = [];
+    items.forEach((item, i) => {
+      const ix = sgX + i * slot + (slot - S.icon) / 2;
+      const iy = sgY + S.sgTitleH + 4;
+      let id;
+      if (row.kind === 'alb') {
+        id = pg.vertex(
+          `sum-alb-${item.name}`,
+          frame,
+          `${item.name}<br>${item.listeners.join(' / ')}`,
+          STYLES.alb,
+          ix,
+          iy,
+          S.icon,
+          S.icon
+        );
+        sd.alb++;
+      } else if (row.kind === 'ecs') {
+        id = pg.vertex(
+          `sum-svc-${item.name}`,
+          frame,
+          `${item.name}<br>運行 ${item.running}/${item.desired}`,
+          STYLES.ecsService,
+          ix,
+          iy,
+          S.icon,
+          S.icon
+        );
+        sd.ecsService++;
+      } else if (row.kind === 'ec2') {
+        id = pg.vertex(`sum-ec2-${item.id}`, frame, `${item.name}<br>${item.type}`, STYLES.ec2, ix, iy, S.icon, S.icon);
+        sd.ec2++;
+      } else {
+        const warn =
+          (item.publiclyAccessible ? '<br><font color="#D13212">⚠ 公開存取</font>' : '') +
+          (item.subnetGroupMixed
+            ? '<br><font color="#D13212">⚠ 子網群組公私混雜</font>'
+            : item.subnetGroupAllPublic
+              ? '<br><font color="#D13212">⚠ 子網群組全通 IGW</font>'
+              : '');
+        const azTxt = item.multiAZ && item.secondaryAz ? `${item.az} / ${item.secondaryAz}` : item.az || '';
+        id = pg.vertex(
+          `sum-rds-${item.name}`,
+          frame,
+          `${item.name}<br>${item.engine}${item.multiAZ ? '（Multi-AZ）' : ''}<br>${azTxt}${warn}`,
+          STYLES.rds,
+          ix,
+          iy,
+          S.icon,
+          S.icon
+        );
+        sd.rds++;
+      }
+      ids.push({ item, id });
+    });
+    cellOf.set(row.key, { ids, sgId, row });
+    ry += S.rowH + S.rowGap;
+  }
+
+  // ---- 邊：只畫可證明的 join ----
+  const albRow = cellOf.get('alb');
+  // IGW → ALB：邊標由 ALB 各 SG 中「IpRanges 含 0.0.0.0/0」的埠集合確定性算出
+  if (v.igwId && albRow) {
+    const ports = [...new Set(v.albs.flatMap((a) => a.openPorts))].sort(
+      (a, b) => (parseInt(a, 10) || 1e9) - (parseInt(b, 10) || 1e9)
+    );
+    const label = ports.length ? `allow ${ports.join(',')} from 0.0.0.0/0` : '';
+    const target = albRow.sgId || (albRow.ids[0] || {}).id;
+    if (target) pg.edge(`e-sum-igw-${v.id}`, `sum-igw-${v.id}`, target, label, V_FLOW);
+  }
+  // ALB → ECS 服務：target group ARN 雙向 join
+  for (const [key, grp] of cellOf) {
+    if (!grp.row.kind.startsWith('ecs')) continue;
+    for (const { item: svc, id } of grp.ids) {
+      if (!svc.albArn || !albRow) continue;
+      const hit = albRow.ids.find(({ item }) => item.arn === svc.albArn);
+      if (hit) pg.edge(`e-sum-alb-${v.id}-${svc.name}`, hit.id, id, svc.tg ? `${svc.tg.protocol}:${svc.tg.port}` : '', V_FLOW);
+    }
+    void key;
+  }
+  // ECS → RDS：沿用 regionModel.ecsToRds（RDS 的 SG inbound 可證明放行 DB port）
+  const rdsRow = cellOf.get('rds');
+  if (rdsRow) {
+    for (const { svc, db } of regionModel.ecsToRds) {
+      const dbHit = rdsRow.ids.find(({ item }) => item === db);
+      if (!dbHit) continue;
+      for (const [, grp] of cellOf) {
+        const svcHit = grp.row.kind === 'ecs' && grp.ids.find(({ item }) => item === svc);
+        if (svcHit) pg.edge(`e-sum-${v.id}-${svc.name}-${db.name}`, svcHit.id, dbHit.id, `TCP:${db.port}`, V_FLOW);
+      }
+    }
+  }
+}
+
+// ---------- 頁 2：總覽 ----------
 function buildOverview(model, drawn) {
   const L = LAYOUT;
   const pg = new Page('overview', '總覽');
@@ -801,7 +1319,9 @@ function main() {
   const model = loadModel();
 
   const drawn = { cloudfront: 0, s3: 0, alb: 0, ecsService: 0, rds: 0, ec2: 0, subnet: 0, subnetAccounted: 0 };
-  const pages = [buildOverview(model, drawn)];
+  // 匯總頁自成一套計數器（它把每樣東西各畫一次），不與 drawn 混用以免重複計數
+  const sd = { cloudfront: 0, s3: 0, alb: 0, ecsService: 0, rds: 0, ec2: 0, subnet: 0 };
+  const pages = [buildSummary(model, sd), buildOverview(model, drawn)];
   for (const r of model.regions) {
     for (const v of r.vpcs) {
       if (v.hasWorkload) pages.push(buildVpcPage(r, v, drawn));
@@ -816,8 +1336,13 @@ function main() {
     ecsService: model.regions.reduce((n, r) => n + r.services.length, 0),
     rds: model.regions.reduce((n, r) => n + r.rdsInstances.length, 0),
     subnet: model.regions.reduce((n, r) => n + r.subnets.length, 0),
+    ec2: model.regions.reduce((n, r) => n + r.vpcs.reduce((m, v) => m + v.ec2.length, 0), 0),
   };
   const problems = [];
+  // 匯總頁：每樣資源都應恰好畫出一次（含無工作負載的 VPC 的子網）
+  for (const k of ['cloudfront', 's3', 'alb', 'ecsService', 'rds', 'ec2', 'subnet']) {
+    if (sd[k] !== src[k]) problems.push(`匯總頁 ${k} 畫出 ${sd[k]} ≠ 來源 ${src[k]}`);
+  }
   if (drawn.cloudfront !== src.cloudfront) problems.push(`CloudFront 畫出 ${drawn.cloudfront} ≠ 來源 ${src.cloudfront}`);
   if (drawn.s3 !== src.s3) problems.push(`S3 畫出 ${drawn.s3} ≠ 來源 ${src.s3}`);
   if (drawn.alb !== src.alb) problems.push(`ALB 畫出 ${drawn.alb} ≠ 來源 ${src.alb}`);
@@ -843,6 +1368,10 @@ function main() {
     `  計數（畫出/來源）：CloudFront ${drawn.cloudfront}/${src.cloudfront}、S3 ${drawn.s3}/${src.s3}、` +
       `ALB ${drawn.alb}/${src.alb}、ECS 服務 ${drawn.ecsService}/${src.ecsService}、RDS ${drawn.rds}/${src.rds}、` +
       `子網 ${drawn.subnet}＋總覽計數 ${drawn.subnetAccounted}/${src.subnet}`
+  );
+  console.log(
+    `  匯總頁（畫出/來源）：CloudFront ${sd.cloudfront}/${src.cloudfront}、S3 ${sd.s3}/${src.s3}、ALB ${sd.alb}/${src.alb}、` +
+      `ECS 服務 ${sd.ecsService}/${src.ecsService}、RDS ${sd.rds}/${src.rds}、EC2 ${sd.ec2}/${src.ec2}、子網 ${sd.subnet}/${src.subnet}`
   );
   console.log('  請用 app.diagrams.net 或 VS Code Draw.io 擴充開啟目視確認（可對照 data/inventory.md）');
 }
