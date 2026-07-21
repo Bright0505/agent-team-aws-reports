@@ -8,8 +8,8 @@
  *   node .claude/skills/aws-diagram/scripts/build-diagram.js --out report/aws-architecture.drawio
  *
  * 頁面結構（資料驅動，不寫死環境名）：
- *   頁 1「匯總」：全帳號一張——雲外入口 ＋ 帳號層服務欄 ＋ Region 內各 VPC 的公私分層拓撲
- *   頁 2「總覽」：使用者 → CloudFront → 各 VPC 縮略框／S3
+ *   頁 1「全景架構」：全帳號一張——雲外入口 ＋ 帳號層服務欄 ＋ Region 內各 VPC 的公私分層拓撲
+ *   頁 2「架構索引」：使用者 → CloudFront → 各 VPC 縮略框／S3
  *   頁 3..N：每個「有工作負載（ALB/ECS/RDS/EC2 任一）」的 VPC 一頁
  *
  * 邊一律只畫「可證明的 join」，證明不了就不畫、不猜：
@@ -214,7 +214,7 @@ function loadRegion(region) {
   const sgById = new Map(sgs.map((g) => [g.GroupId, g]));
   const sgName = (id) => (sgById.get(id) || {}).GroupName || id;
 
-  // 一組 SG 對 0.0.0.0/0 開放的埠（確定性算出，供匯總頁的 IGW→ALB 邊標用）
+  // 一組 SG 對 0.0.0.0/0 開放的埠（確定性算出，供全景架構頁的 IGW→ALB 邊標用）
   // 回傳如 ['80', '443'] 或 ['ALL']；只看 IpRanges 含 0.0.0.0/0 的規則，不含 SG 對 SG
   function openToWorldPorts(sgIds) {
     const ports = new Set();
@@ -448,7 +448,7 @@ const STYLES = {
   edge:
     'edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;' +
     'strokeColor=#545B64;fontColor=#232F3E;endArrow=block;endFill=1;',
-  // --- 匯總頁專用 ---
+  // --- 全景架構頁專用 ---
   // 層別直欄是「背景通道」不是容器（container=0）：子網與資源都疊在它上面，靠先後順序分層
   tierPublic:
     'rounded=0;whiteSpace=wrap;html=1;fontSize=12;fontStyle=1;verticalAlign=top;align=center;spacingTop=4;' +
@@ -482,7 +482,7 @@ const STYLES = {
     'text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=12;fontStyle=1;fontColor=#232F3E;',
 };
 const DISABLED = 'opacity=30;';
-// 邊的錨點：垂直流量鏈（IGW→ALB→ECS→RDS）底出頂入；總覽頁橫向（使用者→CF→VPC/S3）右出左入
+// 邊的錨點：垂直流量鏈（IGW→ALB→ECS→RDS）底出頂入；架構索引頁橫向（使用者→CF→VPC/S3）右出左入
 const V_FLOW = 'exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;';
 const H_FLOW = 'exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;';
 
@@ -536,7 +536,7 @@ class Page {
   }
 }
 
-// 匯總頁版面常數（只影響匯總頁；改這裡不動其他分頁）
+// 全景架構頁版面常數（只影響全景架構頁；改這裡不動其他分頁）
 const SUM = {
   icon: 78,
   colW: 470, // 單一層別通道寬
@@ -558,12 +558,12 @@ const SUM = {
   cfSlotH: 130,
 };
 
-// ---------- 頁 1：匯總（全帳號一張） ----------
+// ---------- 頁 1：全景架構（全帳號一張） ----------
 // 版型：雲外入口欄 →｜AWS Cloud｜帳號層服務欄 ＋ Region 框（內含各 VPC 的公私分層拓撲）｜
 // 一切依 data/ 可證明的事實：層別依實際路由、邊只畫可證明的 join、未設定的服務照實灰化標「未啟用」
 function buildSummary(model, sd) {
   const S = SUM;
-  const pg = new Page('summary', '匯總');
+  const pg = new Page('summary', '全景架構');
 
   // ---- 雲外左欄：使用者 → Route 53 → CloudFront ----
   const extX = 40;
@@ -587,8 +587,10 @@ function buildSummary(model, sd) {
   }
   const cfTop = ey;
   model.cfs.forEach((cf, i) => {
+    // 第二個以後的 alias 也要印——一個 distribution 掛多個網域時，只印 cf.name 會靜默吞掉其餘網域
     const label =
       `${cf.name}` +
+      (cf.aliases.length > 1 ? `<br>${cf.aliases.slice(1).join('<br>')}` : '') +
       (cf.comment ? `<br>${cf.comment}` : '') +
       (cf.enabled ? '' : '<br><font color="#879196">（已停用）</font>');
     pg.vertex(
@@ -984,10 +986,10 @@ function drawVpcBlock(pg, parent, regionModel, v, plan, x, y, w, sd) {
   }
 }
 
-// ---------- 頁 2：總覽 ----------
+// ---------- 頁 2：架構索引 ----------
 function buildOverview(model, drawn) {
   const L = LAYOUT;
-  const pg = new Page('overview', '總覽');
+  const pg = new Page('overview', '架構索引');
 
   const cfCount = model.cfs.length;
   const cfSlotH = 135;
@@ -1319,7 +1321,7 @@ function main() {
   const model = loadModel();
 
   const drawn = { cloudfront: 0, s3: 0, alb: 0, ecsService: 0, rds: 0, ec2: 0, subnet: 0, subnetAccounted: 0 };
-  // 匯總頁自成一套計數器（它把每樣東西各畫一次），不與 drawn 混用以免重複計數
+  // 全景架構頁自成一套計數器（它把每樣東西各畫一次），不與 drawn 混用以免重複計數
   const sd = { cloudfront: 0, s3: 0, alb: 0, ecsService: 0, rds: 0, ec2: 0, subnet: 0 };
   const pages = [buildSummary(model, sd), buildOverview(model, drawn)];
   for (const r of model.regions) {
@@ -1328,7 +1330,7 @@ function main() {
     }
   }
 
-  // 自我檢查：畫出數量必須等於來源 JSON 數量（子網＝畫出＋總覽計數標籤兩者涵蓋）
+  // 自我檢查：畫出數量必須等於來源 JSON 數量（子網＝畫出＋索引頁計數標籤兩者涵蓋）
   const src = {
     cloudfront: model.cfs.length,
     s3: model.buckets.length,
@@ -1339,9 +1341,9 @@ function main() {
     ec2: model.regions.reduce((n, r) => n + r.vpcs.reduce((m, v) => m + v.ec2.length, 0), 0),
   };
   const problems = [];
-  // 匯總頁：每樣資源都應恰好畫出一次（含無工作負載的 VPC 的子網）
+  // 全景架構頁：每樣資源都應恰好畫出一次（含無工作負載的 VPC 的子網）
   for (const k of ['cloudfront', 's3', 'alb', 'ecsService', 'rds', 'ec2', 'subnet']) {
-    if (sd[k] !== src[k]) problems.push(`匯總頁 ${k} 畫出 ${sd[k]} ≠ 來源 ${src[k]}`);
+    if (sd[k] !== src[k]) problems.push(`全景架構頁 ${k} 畫出 ${sd[k]} ≠ 來源 ${src[k]}`);
   }
   if (drawn.cloudfront !== src.cloudfront) problems.push(`CloudFront 畫出 ${drawn.cloudfront} ≠ 來源 ${src.cloudfront}`);
   if (drawn.s3 !== src.s3) problems.push(`S3 畫出 ${drawn.s3} ≠ 來源 ${src.s3}`);
@@ -1349,7 +1351,7 @@ function main() {
   if (drawn.ecsService !== src.ecsService) problems.push(`ECS 服務畫出 ${drawn.ecsService} ≠ 來源 ${src.ecsService}`);
   if (drawn.rds !== src.rds) problems.push(`RDS 畫出 ${drawn.rds} ≠ 來源 ${src.rds}`);
   if (drawn.subnet + drawn.subnetAccounted !== src.subnet) {
-    problems.push(`子網涵蓋 ${drawn.subnet}＋總覽計數 ${drawn.subnetAccounted} ≠ 來源 ${src.subnet}`);
+    problems.push(`子網涵蓋 ${drawn.subnet}＋索引頁計數 ${drawn.subnetAccounted} ≠ 來源 ${src.subnet}`);
   }
   if (problems.length) fail(`計數斷言失敗：\n  - ${problems.join('\n  - ')}`);
 
@@ -1367,10 +1369,10 @@ function main() {
   console.log(
     `  計數（畫出/來源）：CloudFront ${drawn.cloudfront}/${src.cloudfront}、S3 ${drawn.s3}/${src.s3}、` +
       `ALB ${drawn.alb}/${src.alb}、ECS 服務 ${drawn.ecsService}/${src.ecsService}、RDS ${drawn.rds}/${src.rds}、` +
-      `子網 ${drawn.subnet}＋總覽計數 ${drawn.subnetAccounted}/${src.subnet}`
+      `子網 ${drawn.subnet}＋索引頁計數 ${drawn.subnetAccounted}/${src.subnet}`
   );
   console.log(
-    `  匯總頁（畫出/來源）：CloudFront ${sd.cloudfront}/${src.cloudfront}、S3 ${sd.s3}/${src.s3}、ALB ${sd.alb}/${src.alb}、` +
+    `  全景架構頁（畫出/來源）：CloudFront ${sd.cloudfront}/${src.cloudfront}、S3 ${sd.s3}/${src.s3}、ALB ${sd.alb}/${src.alb}、` +
       `ECS 服務 ${sd.ecsService}/${src.ecsService}、RDS ${sd.rds}/${src.rds}、EC2 ${sd.ec2}/${src.ec2}、子網 ${sd.subnet}/${src.subnet}`
   );
   console.log('  請用 app.diagrams.net 或 VS Code Draw.io 擴充開啟目視確認（可對照 data/inventory.md）');
