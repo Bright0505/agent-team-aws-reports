@@ -32,6 +32,11 @@ if [ -z "$PERIOD" ]; then
   exit 1
 fi
 
+if ! [[ "$PERIOD" =~ ^[0-9]{4}(-[0-9]{2}|-[Qq][1-4])?$ ]]; then
+  echo "錯誤：期別格式不正確（應為 YYYY、YYYY-MM 或 YYYY-QN）：'$PERIOD'" >&2
+  exit 1
+fi
+
 DEST="archive/$PERIOD"
 
 if [ ! -f "report/AWS架構報告.md" ]; then

@@ -13,7 +13,7 @@
  *   node .claude/skills/report-aws/scripts/build-report.js --masked       # 對外分享版：做遮罩防呆檢查
  *
  * 預設為正式上線版，不遮罩、不檢查。--masked 供使用者要求對外分享版時使用：
- * 發現 12 位數帳號 ID 或 AKIA 金鑰樣式即失敗退出。
+ * 發現 12 位數帳號 ID、AKIA/ASIA 金鑰、ARN、內部私有 IP 或 Email 樣式即失敗退出。
  */
 'use strict';
 
@@ -295,7 +295,11 @@ function maskGuard(html) {
   const rules = [
     [/\b\d{12}\b/g, '疑似未遮罩的 12 位數 AWS 帳號 ID'],
     [/\bAKIA[0-9A-Z]{16}\b/g, '疑似 AWS access key ID'],
+    [/\bASIA[0-9A-Z]{16}\b/g, '疑似 AWS 暫時性 access key ID'],
     [/\baws_secret_access_key\b/gi, '疑似 secret key 內容'],
+    [/\barn:aws:[a-z0-9-]+:[a-z0-9-]*:\d{12}:/g, '疑似未遮罩的 ARN（含帳號 ID）'],
+    [/\b(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})\b/g, '疑似未遮罩的內部私有 IP'],
+    [/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, '疑似未遮罩的 Email'],
   ];
   const hits = [];
   for (const [re, label] of rules) {
