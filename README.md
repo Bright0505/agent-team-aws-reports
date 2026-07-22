@@ -81,14 +81,18 @@ node .claude/skills/aws-diagram/scripts/build-diagram.js   # 或在 Claude Code 
 | 路徑 | 用途 |
 |---|---|
 | `.claude/agents/` | 六個 agent 定義 |
+| `.claude/settings.json` | 權限模式（`dontAsk`）、allow／deny 清單、PreToolUse hook 註冊——**新增會被呼叫的腳本必須同步加 allow 條目** |
+| `.claude/settings.local.json` | 本機個人覆寫（不進版控，各機器自理） |
 | `.claude/skills/report-aws/SKILL.md` | `/report-aws` 一鍵無人值守流程 |
-| `.claude/skills/aws-diagram/` | 選配 skill：`data/` 掃描產物 → draw.io 架構圖（`/aws-diagram`，不在無人值守流程內） |
+| `.claude/skills/aws-diagram/SKILL.md` | 選配 skill：`data/` 掃描產物 → draw.io 架構圖（`/aws-diagram`，不在無人值守流程內） |
+| `.claude/skills/aws-diagram/scripts/build-diagram.js` | 確定性架構圖產生器（`data/` → `report/aws-architecture.drawio`，含數量斷言） |
 | `.claude/skills/report-aws/scripts/scan.sh` | 唯讀掃描腳本（末尾自動呼叫 digest.sh） |
 | `.claude/skills/report-aws/scripts/digest.sh` | 掃描資料精簡（本機 jq；含證據欄位斷言，欄位遺失即失敗） |
 | `.claude/skills/report-aws/scripts/network-facts.py` | 跨檔關聯事實表（子網實際路由／RDS 落點），確定性計算不交給 LLM |
 | `.claude/skills/report-aws/scripts/check-links.sh` | 官方文件連結有效性檢查（docs.aws 失效頁仍回 HTTP 200，須靠此判斷） |
 | `.claude/skills/report-aws/scripts/archive-report.sh` | 存檔本期報告到 archive/<期別>/ |
 | `.claude/skills/report-aws/scripts/build-report.js` | 確定性 HTML 報告產生器（模板＋資料填充，不經過 LLM） |
+| `.claude/skills/report-aws/scripts/hook-aws-literal-guard.sh` | PreToolUse hook：機制化攔截含 `$變數`／`$(...)` 展開的 `aws` 指令 |
 | `.claude/skills/report-aws/references/` | 已驗證的 AWS 官方文件連結目錄（依支柱拆分，agent 只讀自己那份） |
 | `.claude/skills/report-aws/templates/finding-format.md` | 發現統一格式——agent 之間的檔案介面 |
 | `.claude/skills/report-aws/templates/report.html.template` | HTML 報告凍結模板（版型與章節結構） |
@@ -97,10 +101,17 @@ node .claude/skills/aws-diagram/scripts/build-diagram.js   # 或在 Claude Code 
 | `.claude/skills/report-aws/templates/report-data.example.json` | 資料檔完整範例（兼設計基準） |
 | `data/` | 掃描原始資料（gitignore，只留本機） |
 | `data/digest/` | 原始資料的確定性投影——agent 的預設讀取來源（gitignore） |
+| `data/inventory.md` | 資源盤點摘要（scan.sh 產出） |
+| `data/scan-errors.log` | 權限不足／服務未啟用的掃描例外紀錄（有內容屬預期行為） |
 | `findings/` | 各支柱分析結果（執行時產生） |
 | `report/` | 最終報告（執行時產生，每次執行覆蓋） |
 | `archive/` | 各期報告存檔（gitignore；跨期回歸比對靠它，**不要清掉**） |
+| `tmp/` | 暫存檔專用目錄（gitignore；內容完全不得提交，目錄本身保留） |
 | `CLAUDE.md` | Claude Code 專案指示（鐵則與流程細節） |
+
+> `data/`、`findings/`、`report/`、`archive/`、`tmp/` 各自放一份只留 `.gitignore` 的
+> `*` + `!.gitignore` 規則——**目錄結構進版控（clone 後即存在），內容一律忽略**。
+> 新增這類產出目錄時請比照辦理，不要改回頂層 `.gitignore` 列目錄名。
 
 ## Agent 一覽
 
