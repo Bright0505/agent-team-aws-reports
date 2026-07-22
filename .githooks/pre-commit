@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# 防止 data/、report/、archive/、tmp/ 底下的帳號機敏資料誤 commit。
+# 背景：tmp/architecture.md 曾在 commit 975e70a 短暫進版控、同日 d8a8560 移除
+# ——內容雖不含機敏資料，但驗證了「.gitignore 對已追蹤檔案無效」的限制。
+#
+# 啟用方式（每台機器一次）：git config core.hooksPath .githooks
+
+leaked="$(git diff --cached --name-only | grep -E '^(data|report|archive|tmp)/' | grep -v '\.gitignore$')"
+if [ -n "$leaked" ]; then
+  echo "錯誤：以下檔案位於應保持淨空的帳號資料目錄，禁止 commit：" >&2
+  echo "$leaked" >&2
+  exit 1
+fi
