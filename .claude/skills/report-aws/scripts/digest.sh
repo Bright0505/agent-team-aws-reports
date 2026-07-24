@@ -371,6 +371,26 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# ── 服務覆蓋率自檢：帳號實際用到哪些服務？scan.sh 有沒有全掃到？ ────────
+# Cost Explorer（有計費）∪ Resource Groups Tagging API（現存資源 ARN）diff scan.sh 的 run()。
+# coverage.py 預設回 0（含有缺口時）——缺口不必然是 bug，且非零會讓本 else 分支 FAIL、
+# 中斷無人值守；缺口當閘門是 COVERAGE_STRICT=1 的獨立稽核用途。
+if COVERAGE_STRICT="" python3 "$SKILL_DIR/scripts/coverage.py"; then
+  MADE=$((MADE + 1))
+  CV="$DIGEST/coverage.md"
+  for sec in "覆蓋率缺口" "未能對應"; do
+    if grep -q "$sec" "$CV"; then
+      echo "    ✅ 覆蓋率：${sec} 區塊在"
+    else
+      echo "    ❌ 斷言失敗：覆蓋率表缺少「${sec}」區塊" >&2
+      FAIL=$((FAIL + 1))
+    fi
+  done
+else
+  echo "    ❌ coverage.py 執行失敗" >&2
+  FAIL=$((FAIL + 1))
+fi
+
 echo ""
 if [ "$MADE" -eq 0 ]; then
   echo "=== 精簡失敗：沒有產出任何 digest ===" >&2

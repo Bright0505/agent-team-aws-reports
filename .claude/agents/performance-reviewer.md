@@ -36,12 +36,16 @@ model: sonnet
 **資料庫效能**
 - RDS 機型世代、儲存類型（gp2 vs gp3）
 - DynamoDB 容量模式（on-demand vs provisioned）與使用型態匹配
+- ElastiCache（`regions/<區域>/elasticache-clusters.json`）：節點型別世代（是否舊世代）、引擎版本
+- Redshift（`regions/<區域>/redshift-clusters.json`）：節點型別、是否可評估 RA3／Serverless
 
 **網路與快取**
 - 靜態內容是否透過 CloudFront 而非直接打 ALB/S3
 - ALB 是否啟用 HTTP/2；跨 AZ 流量結構
 - VPC Endpoint：高流量 S3/DynamoDB 存取有無走 Gateway Endpoint（省 NAT 費用也降延遲）
 - 有無快取層（ElastiCache）的引入機會（依工作負載判斷，僅列為建議）
+- API Gateway（`regions/<區域>/apigateway-rest.json`、`apigatewayv2-apis.json`）：
+  REST API 是否啟用快取、端點型別（EDGE/REGIONAL）是否與存取模式匹配
 
 ## 規則
 

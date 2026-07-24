@@ -4,3 +4,6 @@
 
 # macOS
 .DS_Store
+
+# 掃描 catalog 的 per-project 補充（免版控；基線 scan-catalog.json 才進版控）
+scan-catalog.local.json

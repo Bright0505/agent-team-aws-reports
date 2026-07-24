@@ -49,6 +49,22 @@ model: opus
 - KMS 客戶自管金鑰輪替
 - ALB/CloudFront TLS 政策版本（避免舊版 TLS）
 
+**IAM 細部授權（roles/groups/policies）**
+- 客戶自管政策（`global/iam-policies-local.json`）是否有 `Action:"*"` / `Resource:"*"` 等過度寬鬆授權
+- IAM Role（`global/iam-roles.json`）的信任政策是否過寬（如 Principal 為 `*`、跨帳號無條件信任）
+- IAM Group（`global/iam-groups.json`）與使用者的權限分派結構
+
+**應用整合與機密**
+- Secrets Manager（`regions/<區域>/secretsmanager.json`）：密文是否啟用自動輪替（RotationEnabled）
+- SSM Parameter Store（`regions/<區域>/ssm-parameters.json`）：敏感參數是否為 SecureString
+- ACM 憑證到期（`regions/<區域>/acm-detail/<id>-describe.json` 的 NotAfter）：是否有即將到期或已過期憑證
+
+**WAF 與合規偵測（補強偵測控制）**
+- WAFv2（`regions/<區域>/wafv2-regional.json` 區域級、`global/wafv2-cloudfront.json` CloudFront scope）：
+  對外的 ALB / API Gateway / CloudFront 是否掛 Web ACL（對回各資源的關聯判斷；CloudFront 另看 `WebACLId`）
+- AWS Config rules（`regions/<區域>/config-rules.json`）：是否有合規規則、涵蓋範圍
+- GuardDuty findings 嚴重度（`regions/<區域>/guardduty-detail/<id>-finding-stats.json`）：有無高／中嚴重度發現
+
 ## 規則
 
 - 每項發現的證據必須對回 `data/` 檔案，不得推測；查不到的寫入「資料缺口」

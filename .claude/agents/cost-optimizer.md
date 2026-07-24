@@ -14,6 +14,9 @@ model: sonnet
    **`data/digest/` 有的檔案一律讀 digest，不要讀 `data/` 的原始版**——digest 是原始檔的確定性投影
    （`.claude/skills/report-aws/scripts/digest.sh` 以 jq 產生，保留全部證據欄位並通過欄位斷言），**可直接引用為證據**。
    成本表是 `data/global/cost-by-service.json` 的完整重排（無服務省略），**不需要再讀原始 JSON**。
+   **另必讀 `data/digest/coverage.md`**（服務覆蓋率自檢）：它把「有計費卻無盤點資料」的服務標成
+   覆蓋率缺口——這些服務在花錢但掃描沒抓到明細，成本分析要特別點名（例如帳號有 Glue／CloudFormation
+   計費但無對應掃描時，提醒該服務未納入本次盤點、金額僅來自 cost-by-service）。
    本支柱另會用到 `digest/cloudfront-distributions.json`（WebACLId：孤兒 WAF 判斷）
    與 **`digest/s3-buckets.md`**（含生命週期設定；已合併 `s3-buckets-detail/` 的 12 個小檔）。
    其餘檔案（eips、ebs-*、load-balancers、target-groups、log-groups 等）讀 `data/` 原始檔。
@@ -32,6 +35,8 @@ model: sonnet
 - 舊快照堆積（時間久遠且數量多）
 - 沒有目標的 target group、閒置 ALB（可從 target 數量判斷）
 - 停止但仍留 EBS 的 EC2、長期 stopped 的實例
+- ECR 儲存庫（`regions/<區域>/ecr-repositories.json`）：是否設生命週期政策清舊映像（未設會無限堆積計費）
+- 閒置 EFS（`regions/<區域>/efs-filesystems.json`）：無掛載目標或長期低用量
 
 **規格與方案**
 - EBS gp2 → gp3（同容量約省 20%）
@@ -39,6 +44,8 @@ model: sonnet
 - 成本 Top 服務有無 Savings Plans / Reserved 的空間（穩定用量者）
 - Lambda arm64 遷移（約省 20%）
 - DynamoDB 容量模式與實際用量匹配
+- ElastiCache（`regions/<區域>/elasticache-clusters.json`）：Reserved Node 空間、節點型別是否過大
+- Redshift（`regions/<區域>/redshift-clusters.json`）：Reserved 空間、是否可暫停或轉 Serverless
 
 **資料傳輸與儲存分層**
 - NAT Gateway 流量費：高流量 S3/DynamoDB 有無 Gateway VPC Endpoint

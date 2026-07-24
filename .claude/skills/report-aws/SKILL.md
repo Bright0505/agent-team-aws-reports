@@ -43,10 +43,14 @@ argument-hint: "[期別，如 2026-07 或 2026-Q3；留空用當月]"
 profile `default` 應設定為**唯讀憑證**（IAM 掛 `ReadOnlyAccess`）——唯讀鐵則的強制層在 IAM；
 若唯讀金鑰放在其他 profile，第一個參數改用該名稱。
 相對路徑形式跨機器與改專案名都成立。
+掃什麼：核心掃描與明細迴圈寫死在 scan.sh；「一次性 list/describe」服務由 `scan-catalog.json`（版控基線）
+＋專案根目錄 `scan-catalog.local.json`（gitignored 補充）宣告，scan.sh 自動讀取——要為某帳號加必掃服務時改 catalog 即可，不動腳本。
 完成後確認 `data/inventory.md`、`data/scan-meta.json` 與 **`data/digest/network-facts.md`** 都存在；
 若缺任一，停止並回報掃描失敗原因（讀 `data/scan-errors.log` 說明）。
 network-facts 是安全性／可靠性分析的必要輸入（RDS 網路落點、private 命名落差等
 跨檔關聯事實），缺了它 LLM 就得自己做交叉比對——那正是上次漏掉 [高] 發現的原因。
+另會產出 **`data/digest/coverage.md`**（服務覆蓋率自檢：帳號實際用到的服務 vs scan.sh 掃到的，
+標出「有計費卻沒掃到」的缺口）——供成本分析點名未盤點服務，也讓覆蓋率缺口每次掃描自動浮現。
 
 ## 階段 ② — 四支柱並行分析（背景並行）
 

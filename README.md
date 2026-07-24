@@ -28,7 +28,8 @@
 ```
 ① aws-scanner（同步執行）
      執行 .claude/skills/report-aws/scripts/scan.sh → data/*.json + data/inventory.md
-     末尾自動跑 digest.sh → data/digest/（精簡投影＋跨檔關聯事實表，含證據欄位斷言）
+     （核心掃描寫死在腳本；「一次性 list/describe」服務由 scan-catalog(.local).json 宣告）
+     末尾自動跑 digest.sh → data/digest/（精簡投影＋跨檔關聯事實表＋服務覆蓋率自檢，含證據欄位斷言）
 ② 四個分析 agent（並行背景執行，等 ① 完成後才派工）
      security-auditor / reliability-reviewer / performance-reviewer / cost-optimizer
      各自輸出 findings/<pillar>.md
@@ -86,9 +87,12 @@ node .claude/skills/aws-diagram/scripts/build-diagram.js   # 或在 Claude Code 
 | `.claude/skills/report-aws/SKILL.md` | `/report-aws` 一鍵無人值守流程 |
 | `.claude/skills/aws-diagram/SKILL.md` | 選配 skill：`data/` 掃描產物 → draw.io 架構圖（`/aws-diagram`，不在無人值守流程內） |
 | `.claude/skills/aws-diagram/scripts/build-diagram.js` | 確定性架構圖產生器（`data/` → `report/aws-architecture.drawio`，含數量斷言） |
-| `.claude/skills/report-aws/scripts/scan.sh` | 唯讀掃描腳本（末尾自動呼叫 digest.sh） |
-| `.claude/skills/report-aws/scripts/digest.sh` | 掃描資料精簡（本機 jq；含證據欄位斷言，欄位遺失即失敗） |
+| `.claude/skills/report-aws/scripts/scan.sh` | 唯讀掃描腳本（末尾自動呼叫 digest.sh）；核心掃描寫死於此，一次性 list/describe 服務改由 catalog 宣告（`run_from_catalog` 驅動，含唯讀動詞／禁 `--query` 護欄） |
+| `.claude/skills/report-aws/scripts/scan-catalog.json` | 掃描 catalog 基線（**進版控**）：宣告式列出要掃的一次性 list/describe 服務。加服務＝加一條 JSON，不改腳本 |
+| `scan-catalog.local.json`（專案根目錄） | 掃描 catalog 的 per-project 補充（**gitignored**）：放「這個帳號」要加的必掃服務；在根目錄故 dontAsk 下也能自由編輯 |
+| `.claude/skills/report-aws/scripts/digest.sh` | 掃描資料精簡（本機 jq；含證據欄位斷言，欄位遺失即失敗）；末尾呼叫 network-facts.py 與 coverage.py |
 | `.claude/skills/report-aws/scripts/network-facts.py` | 跨檔關聯事實表（子網實際路由／RDS 落點），確定性計算不交給 LLM |
+| `.claude/skills/report-aws/scripts/coverage.py` | 服務覆蓋率自檢（Cost Explorer ∪ Tagging API 反推帳號用量，diff catalog＋scan.sh）→ `data/digest/coverage.md`，標出「有計費卻沒掃到」的缺口 |
 | `.claude/skills/report-aws/scripts/check-links.sh` | 官方文件連結有效性檢查（docs.aws 失效頁仍回 HTTP 200，須靠此判斷） |
 | `.claude/skills/report-aws/scripts/archive-report.sh` | 存檔本期報告到 archive/<期別>/ |
 | `.claude/skills/report-aws/scripts/build-report.js` | 確定性 HTML 報告產生器（模板＋資料填充，不經過 LLM） |
