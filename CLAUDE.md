@@ -29,8 +29,8 @@
 
 ```
 ① aws-scanner（同步執行）
-     掃描 → data/*.json + data/inventory.md
-     scan.sh 末尾自動跑 digest.sh → data/digest/（樣板欄位多的檔案的精簡投影）
+     掃描 → data/*.json + data/inventory.md（一次性 list/describe 服務由 scan-catalog(.local).json 宣告）
+     scan.sh 末尾自動跑 digest.sh → data/digest/（精簡投影＋network-facts 跨檔事實表＋coverage 服務覆蓋率自檢）
 ② 四個分析 agent（並行背景執行，等 ① 完成後才派工）
      security-auditor / reliability-reviewer / performance-reviewer / cost-optimizer
      各自輸出 findings/<pillar>.md
