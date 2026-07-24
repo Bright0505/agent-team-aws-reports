@@ -37,11 +37,19 @@ model: opus
 - RDS 備份保留天數、DynamoDB PITR 是否啟用
 - EBS 快照存在與否、頻率（從快照時間戳推估）
 - S3 版本控制
+- AWS Backup（`regions/<區域>/backup-vaults.json`、`backup-plans.json`）：是否有集中備份計畫、
+  涵蓋哪些資源類型；有 RDS/EBS/EFS 但無備份計畫時，備援僅靠各服務自身設定，缺集中治理
 
 **容錯與擴展**
 - ASG 的 min/max/desired 設定、健康檢查類型（EC2 vs ELB）
 - ALB target group 健康檢查設定、跨 AZ 目標分布
 - Lambda 是否設定 DLQ / 重試（可從函式設定看）
+- ElastiCache（`regions/<區域>/elasticache-clusters.json`、`elasticache-repl-groups.json`）：
+  是否 Multi-AZ、有無自動故障切換（AutomaticFailover）
+- Redshift（`regions/<區域>/redshift-clusters.json`）：單節點 vs 多節點、快照保留
+- EFS（`regions/<區域>/efs-filesystems.json`）：是否跨 AZ（Regional）備援
+- EKS 節點群組（`regions/<區域>/eks-detail/<叢集>-nodegroups.json`）：節點是否跨多 AZ、
+  是否單節點群組單點；端點是否公開（`<叢集>-describe.json`）
 
 **監控與告警**
 - CloudWatch 告警覆蓋：關鍵資源（EC2、RDS、ALB 5xx、Lambda errors）有無告警

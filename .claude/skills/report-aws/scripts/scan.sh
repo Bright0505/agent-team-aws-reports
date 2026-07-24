@@ -100,6 +100,51 @@ run() {
   rm -f "$errtmp"
 }
 
+# ── 資料驅動掃描：從 catalog 讀「一次性 list/describe」服務 ─────────────────
+# 「掃什麼」抽成宣告式 JSON——scan-catalog.json（基線，進版控）＋專案根目錄
+# scan-catalog.local.json（gitignored 補充）。加一個一次性服務＝改 JSON 不改本腳本。
+# 明細迴圈（acm/guardduty/eks 等先 list 再逐一 describe）與核心掃描仍寫死在下方。
+CATALOG="$SKILL_DIR/scripts/scan-catalog.json"
+CATALOG_LOCAL="$WORK_ROOT/scan-catalog.local.json"
+
+# run_from_catalog <scope> <輸出路徑前綴> [附加參數...]
+#   scope=global|region；region 由呼叫端附上 --region。三道護欄：唯讀動詞、禁 --query、
+#   args 以 argv 傳入 run()→aws（不經 shell 再解析，故 JSON 內的 $(...) 只會被當字面字串而被 AWS 拒）。
+run_from_catalog() {
+  local scope="$1" prefix="$2"; shift 2
+  local extra=("$@")
+  local merged; merged="$(mktemp)"
+  { [ -f "$CATALOG" ] && cat "$CATALOG"; [ -f "$CATALOG_LOCAL" ] && cat "$CATALOG_LOCAL"; } \
+    | jq -s --arg scope "$scope" '[.[].services[]? | select(.scope==$scope)]' > "$merged" 2>/dev/null
+  local n; n="$(jq 'length' "$merged" 2>/dev/null || echo 0)"
+  local i
+  for ((i=0; i<n; i++)); do
+    local svc cmd out
+    svc="$(jq -r ".[$i].service" "$merged")"
+    cmd="$(jq -r ".[$i].command" "$merged")"
+    out="$(jq -r ".[$i].output" "$merged")"
+    local args=()
+    while IFS= read -r a; do args+=("$a"); done < <(jq -r ".[$i].args // [] | .[]" "$merged")
+    # 護欄1：只允許唯讀動詞
+    case "$cmd" in
+      describe-*|list-*|get-*) ;;
+      *) echo "REJECTED: catalog/${out} :: 非唯讀動詞（${svc} ${cmd}）——catalog 只允許 describe-*/list-*/get-*" >> "$ERRLOG"
+         echo "  reject ${out}（非唯讀動詞，見 scan-errors.log）"; continue ;;
+    esac
+    # 護欄2：禁 --query（擷取端裁切違規）
+    if [ "${#args[@]}" -gt 0 ] && printf '%s\n' "${args[@]}" | grep -qx -- '--query'; then
+      echo "REJECTED: catalog/${out} :: 不得含 --query（擷取端裁切違規）" >> "$ERRLOG"
+      echo "  reject ${out}（含 --query，見 scan-errors.log）"; continue
+    fi
+    if [ "${DRY_RUN:-}" = "1" ]; then
+      echo "  dry   $prefix/$out :: aws $svc $cmd ${args[*]+${args[*]}}${extra[*]+ ${extra[*]}}"
+      continue
+    fi
+    run "$prefix/$out" "$svc" "$cmd" "${args[@]+"${args[@]}"}" "${extra[@]+"${extra[@]}"}"
+  done
+  rm -f "$merged"
+}
+
 echo "=== 驗證身分 ==="
 if ! aws sts get-caller-identity --output json > "$DATA/caller-identity.json" 2>>"$ERRLOG"; then
   echo "錯誤：AWS 憑證無效，請先執行 aws configure 或 aws sso login" >&2
@@ -184,11 +229,18 @@ run "global/cost-by-service" ce get-cost-and-usage \
   --group-by Type=DIMENSION,Key=SERVICE
 run "global/budgets" budgets describe-budgets --account-id "$ACCOUNT_ID"
 
+# catalog 驅動的全域一次性服務（scan-catalog.json 的 scope=global；如 iam roles/groups/policies、wafv2-cloudfront）
+run_from_catalog global "global"
+
 scan_region() {
   local R="$1"
   local P="regions/$R"
   echo "=== 區域掃描: $R ==="
   local A=(--region "$R")
+
+  # 覆蓋率自檢來源 B：現存資源 ARN（存完整 JSON，本機 coverage.py 再解析 service 前綴；
+  # 不可用 --query 裁切——覆蓋率要的是完整 ARN 清單，非計數）
+  run "$P/tagged-resources" resourcegroupstaggingapi get-resources "${A[@]}"
 
   # 網路
   run "$P/vpcs"              ec2 describe-vpcs "${A[@]}"
@@ -223,12 +275,30 @@ scan_region() {
     fi
   done
   run "$P/eks-clusters"      eks list-clusters "${A[@]}"
+  # EKS 明細（版本／端點公開性／節點群組／Fargate profile）——只有叢集清單會讓分析 agent
+  # 誤判「無運行中資源」或被迫 live 補查（比照 ECS 明細的處理）
+  mkdir -p "$DATA/$P/eks-detail"
+  for e in $(jq -r '.clusters[]?' "$DATA/$P/eks-clusters.json" 2>/dev/null); do
+    run "$P/eks-detail/$e-describe"          eks describe-cluster --name "$e" "${A[@]}"
+    run "$P/eks-detail/$e-nodegroups"        eks list-nodegroups --cluster-name "$e" "${A[@]}"
+    run "$P/eks-detail/$e-fargate-profiles"  eks list-fargate-profiles --cluster-name "$e" "${A[@]}"
+  done
 
-  # 儲存
+  # ACM：list 留在腳本（餵下方逐憑證明細迴圈）；其餘一次性服務（SQS/SNS/API GW/
+  # EventBridge/Step Functions/Secrets Manager/SSM…）已移到 scan-catalog.json，由 run_from_catalog 跑
+  run "$P/acm-certificates"    acm list-certificates "${A[@]}"
+  # ACM 憑證到期需逐憑證明細（比照 KMS 明細迴圈）
+  mkdir -p "$DATA/$P/acm-detail"
+  for ca in $(jq -r '.CertificateSummaryList[]?.CertificateArn' "$DATA/$P/acm-certificates.json" 2>/dev/null); do
+    caname="$(basename "$ca")"
+    run "$P/acm-detail/$caname-describe" acm describe-certificate --certificate-arn "$ca" "${A[@]}"
+  done
+
+  # 儲存（EFS/ECR/Backup 等一次性服務已移到 scan-catalog.json）
   run "$P/ebs-volumes"       ec2 describe-volumes "${A[@]}"
   run "$P/ebs-snapshots"     ec2 describe-snapshots --owner-ids self "${A[@]}"
 
-  # 資料庫
+  # 資料庫（ElastiCache/Redshift 等一次性服務已移到 scan-catalog.json）
   run "$P/rds-instances"     rds describe-db-instances "${A[@]}"
   run "$P/rds-clusters"      rds describe-db-clusters "${A[@]}"
   run "$P/dynamodb-tables"   dynamodb list-tables "${A[@]}"
@@ -251,6 +321,12 @@ scan_region() {
   run "$P/cloudtrail-trails" cloudtrail describe-trails "${A[@]}"
   run "$P/config-recorders"  configservice describe-configuration-recorder-status "${A[@]}"
   run "$P/guardduty-detectors" guardduty list-detectors "${A[@]}"
+  # GuardDuty findings 嚴重度統計（逐 detector；get-findings-statistics 一次回嚴重度直方圖，唯讀）
+  mkdir -p "$DATA/$P/guardduty-detail"
+  for d in $(jq -r '.DetectorIds[]?' "$DATA/$P/guardduty-detectors.json" 2>/dev/null); do
+    run "$P/guardduty-detail/$d-finding-stats" guardduty get-findings-statistics --detector-id "$d" --finding-statistic-types COUNT_BY_SEVERITY "${A[@]}"
+  done
+  # 註：Config rules、WAFv2 區域級等一次性安全服務已移到 scan-catalog.json
   run "$P/securityhub"       securityhub describe-hub "${A[@]}"
   run "$P/kms-keys"          kms list-keys "${A[@]}"
   mkdir -p "$DATA/$P/kms-detail"
@@ -263,6 +339,10 @@ scan_region() {
   # 監控
   run "$P/cloudwatch-alarms" cloudwatch describe-alarms "${A[@]}"
   run "$P/log-groups"        logs describe-log-groups "${A[@]}"
+
+  # catalog 驅動的區域一次性服務（scan-catalog.json 的 scope=region；如 sqs/sns/secretsmanager/
+  # ssm/elasticache/redshift/efs/ecr/backup/config-rules/wafv2-regional/apigateway/eventbridge…）
+  run_from_catalog region "$P" "${A[@]}"
 }
 
 for R in $(cat "$DATA/active-regions.txt"); do

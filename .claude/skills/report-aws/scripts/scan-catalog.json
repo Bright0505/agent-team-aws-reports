@@ -1,0 +1,27 @@
+{
+  "_readme": "掃描 catalog（基線，進版控）。scan.sh 的 run_from_catalog 讀本檔決定要跑哪些『一次性 list/describe』掃描。加一個新服務＝在 services 加一條，不必改 scan.sh。欄位：scope=region|global；service=AWS CLI 服務名；command=唯讀動詞（僅允許 describe-*/list-*/get-*）；output=輸出檔名（不含 .json，driver 依 scope 前綴 regions/<R>/ 或 global/）；args=選配字面量參數陣列（禁 --query）。per-project 的臨時補充放專案根目錄的 scan-catalog.local.json（gitignored）。餵明細迴圈的 list（acm/guardduty/eks）與核心掃描仍留在 scan.sh。",
+  "services": [
+    { "scope": "region", "service": "sqs",            "command": "list-queues",         "output": "sqs-queues" },
+    { "scope": "region", "service": "sns",            "command": "list-topics",         "output": "sns-topics" },
+    { "scope": "region", "service": "apigateway",     "command": "get-rest-apis",       "output": "apigateway-rest" },
+    { "scope": "region", "service": "apigatewayv2",   "command": "get-apis",            "output": "apigatewayv2-apis" },
+    { "scope": "region", "service": "events",         "command": "list-event-buses",    "output": "eventbridge-buses" },
+    { "scope": "region", "service": "events",         "command": "list-rules",          "output": "eventbridge-rules" },
+    { "scope": "region", "service": "stepfunctions",  "command": "list-state-machines", "output": "stepfunctions" },
+    { "scope": "region", "service": "secretsmanager", "command": "list-secrets",        "output": "secretsmanager" },
+    { "scope": "region", "service": "ssm",            "command": "describe-parameters", "output": "ssm-parameters" },
+    { "scope": "region", "service": "elasticache",    "command": "describe-cache-clusters",    "output": "elasticache-clusters" },
+    { "scope": "region", "service": "elasticache",    "command": "describe-replication-groups", "output": "elasticache-repl-groups" },
+    { "scope": "region", "service": "redshift",       "command": "describe-clusters",   "output": "redshift-clusters" },
+    { "scope": "region", "service": "efs",            "command": "describe-file-systems", "output": "efs-filesystems" },
+    { "scope": "region", "service": "ecr",            "command": "describe-repositories", "output": "ecr-repositories" },
+    { "scope": "region", "service": "backup",         "command": "list-backup-vaults",  "output": "backup-vaults" },
+    { "scope": "region", "service": "backup",         "command": "list-backup-plans",   "output": "backup-plans" },
+    { "scope": "region", "service": "configservice",  "command": "describe-config-rules", "output": "config-rules" },
+    { "scope": "region", "service": "wafv2",          "command": "list-web-acls",       "output": "wafv2-regional",   "args": ["--scope", "REGIONAL"] },
+    { "scope": "global", "service": "iam",            "command": "list-roles",          "output": "iam-roles" },
+    { "scope": "global", "service": "iam",            "command": "list-groups",         "output": "iam-groups" },
+    { "scope": "global", "service": "iam",            "command": "list-policies",       "output": "iam-policies-local", "args": ["--scope", "Local"] },
+    { "scope": "global", "service": "wafv2",          "command": "list-web-acls",       "output": "wafv2-cloudfront", "args": ["--scope", "CLOUDFRONT", "--region", "us-east-1"] }
+  ]
+}

@@ -1,6 +1,6 @@
 # AWS 官方文件連結目錄 — 安全性（SEC）
 
-security-auditor 的引用來源（依支柱拆分，只讀這一份即可；使用規則與背景見 `references/aws-docs-common.md`）。最後驗證：2026-07-13。
+security-auditor 的引用來源（依支柱拆分，只讀這一份即可；使用規則與背景見 `references/aws-docs-common.md`）。最後驗證：2026-07-24。
 
 - [Security Pillar 白皮書](https://docs.aws.amazon.com/wellarchitected/latest/security-pillar/welcome.html) — 本支柱進入點
 
@@ -43,3 +43,21 @@ security-auditor 的引用來源（依支柱拆分，只讀這一份即可；使
 - [Create an HTTPS listener for your ALB](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/create-https-listener.html) — ALB 補 443 監聽器
 - [Security policies for your Application Load Balancer](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/describe-ssl-policies.html) — ALB TLS 政策版本
 - [IAM database authentication for RDS](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth.html) — 以 IAM 認證取代資料庫密碼
+
+### IAM 細部授權（roles/groups/policies）
+
+- [Apply least-privilege permissions](https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html#grant-least-privilege) — 最小權限（過寬 `Action:*`/`Resource:*` 的依據）
+- [Policies and permissions in IAM](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies.html) — 政策類型與評估
+- [IAM roles](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles.html) — Role 信任政策與跨帳號存取
+
+### 應用整合與機密
+
+- [Rotate AWS Secrets Manager secrets](https://docs.aws.amazon.com/secretsmanager/latest/userguide/rotating-secrets.html) — 密文自動輪替
+- [What is a parameter?（含 SecureString 類型）](https://docs.aws.amazon.com/systems-manager/latest/userguide/what-is-a-parameter.html) — SSM 敏感參數用 SecureString 加密
+- [Managed renewal for ACM certificates](https://docs.aws.amazon.com/acm/latest/userguide/managed-renewal.html) — ACM 憑證自動續期與到期
+
+### WAF 與合規
+
+- [What is AWS WAF?](https://docs.aws.amazon.com/waf/latest/developerguide/what-is-aws-waf.html) — WAF 概念與適用場景
+- [Associating or disassociating a web ACL with an AWS resource](https://docs.aws.amazon.com/waf/latest/developerguide/web-acl-associating-aws-resource.html) — Web ACL 掛在 ALB/API GW/CloudFront
+- [Evaluating resources with AWS Config rules](https://docs.aws.amazon.com/config/latest/developerguide/evaluate-config.html) — Config 合規規則

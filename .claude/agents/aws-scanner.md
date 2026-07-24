@@ -16,6 +16,8 @@ model: haiku
    **是有效證據不是失敗**）、`fail`（記錄到 `data/scan-errors.log` 續跑）。
    腳本末尾會**確定性產生 `data/inventory.md`**（jq 從原始 JSON 算出）並自動跑 `digest.sh`
    產出 `data/digest/`（含證據欄位斷言，斷言失敗即整體非零退出）。
+   「一次性 list/describe」服務由 `scan-catalog.json`＋根目錄 `scan-catalog.local.json` 宣告，
+   **scan.sh 自動讀取並執行**——你照常跑 scan.sh 即可，catalog 不需你手動處理。
 3. 掃描缺口**不必自己分類**——`data/digest/scan-gaps.md` 已確定性分好
    「未設定（空回應／NoSuchXxx）＝有效證據」與「真正的資料缺口（權限不足／服務未啟用）」，
    回報時直接引用它的結論。
